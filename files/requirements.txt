@@ -1,0 +1,15 @@
+# Briefly — Python dependencies
+
+# Web server
+flask>=3.0
+gunicorn>=21.2
+
+# Email + HTML parsing
+beautifulsoup4>=4.12
+requests>=2.31
+
+# LLM client — OpenAI-compatible, works with Groq, Together, OpenRouter
+openai>=1.30
+
+# Config
+python-dotenv>=1.0

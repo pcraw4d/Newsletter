@@ -1,0 +1,43 @@
+# railway.toml — Briefly deployment configuration
+#
+# Railway will detect this file and configure two services automatically:
+#   1. web      — Flask server (always running, handles webhooks + serves API)
+#   2. pipeline — Daily cron job (runs AI processing at 7am UTC)
+#
+# Deploy steps:
+#   1. railway login
+#   2. railway init   (run once, links repo to Railway project)
+#   3. railway up     (deploy)
+#   4. Add a Volume in the Railway dashboard → mount at /data
+#   5. Set environment variables in Railway dashboard (see .env.example)
+
+[build]
+builder = "nixpacks"        # Railway auto-detects Python — no Dockerfile needed
+
+# ---------------------------------------------------------------------------
+# Web service — inbound webhook + dashboard API
+# ---------------------------------------------------------------------------
+[[services]]
+name = "web"
+startCommand = "python server.py"
+
+[services.variables]
+PORT = "8080"
+FLASK_DEBUG = "0"
+
+[services.deploy]
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# ---------------------------------------------------------------------------
+# Pipeline cron — runs AI processing once per day
+#
+# Schedule: 7:00 AM UTC daily
+# Adjust the hour to match your timezone:
+#   NYC (EST/UTC-5):  12:00 UTC  →  "0 12 * * *"
+#   NYC (EDT/UTC-4):  11:00 UTC  →  "0 11 * * *"
+# ---------------------------------------------------------------------------
+[[services]]
+name = "pipeline"
+cronSchedule = "0 12 * * *"
+startCommand = "python run.py"
