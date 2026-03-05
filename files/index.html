@@ -224,6 +224,32 @@
 
     .divider { height: 1px; background: var(--rule); margin: 40px 0; }
 
+    /* Insight panel */
+    .insight-section { margin-bottom: 36px; }
+    .insight-card { border:1px solid var(--rule); background:var(--paper); padding:20px 22px; margin-bottom:10px; }
+    .insight-card-title { font-family:var(--mono); font-size:9px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+    .insight-card-title::after { content:''; flex:1; height:1px; background:var(--rule-light); }
+    .rising-item { display:flex; gap:14px; padding:12px 0; border-bottom:1px solid var(--rule-light); }
+    .rising-item:last-child { border-bottom:none; }
+    .rising-skill { font-size:14px; font-weight:700; margin-bottom:4px; }
+    .rising-why { font-size:12.5px; color:var(--muted); line-height:1.6; }
+    .urgency-badge { font-family:var(--mono); font-size:8.5px; padding:2px 7px; border-radius:2px; flex-shrink:0; white-space:nowrap; align-self:flex-start; margin-top:2px; }
+    .urgency-high { background:#FDF0ED; color:var(--accent); border:1px solid #E8C0B4; }
+    .urgency-medium { background:#FDF7ED; color:#8B5C1C; border:1px solid #DDB888; }
+    .stakes-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .stakes-chip { font-family:var(--mono); font-size:9.5px; color:var(--ink); background:var(--paper-3); border:1px solid var(--rule); padding:4px 10px; border-radius:2px; }
+    .diff-item { padding:10px 0; border-bottom:1px solid var(--rule-light); }
+    .diff-item:last-child { border-bottom:none; }
+    .diff-skill { font-size:13.5px; font-weight:700; margin-bottom:3px; }
+    .diff-why { font-size:12px; color:var(--muted); line-height:1.6; }
+    .lp-item { padding:14px 0; border-bottom:1px solid var(--rule-light); }
+    .lp-item:last-child { border-bottom:none; }
+    .lp-skill { font-size:14px; font-weight:700; margin-bottom:10px; }
+    .lp-row { display:flex; gap:10px; margin-bottom:6px; font-size:12.5px; line-height:1.6; }
+    .lp-label { font-family:var(--mono); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted); min-width:80px; flex-shrink:0; padding-top:2px; }
+    .lp-value { color:#2A2520; }
+    .insight-summary { font-size:14px; line-height:1.75; color:#3A3530; }
+
     @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     .fade-up { animation: fadeUp 0.35s ease both; }
     .fade-up:nth-child(1) { animation-delay: 0.00s; }
@@ -234,6 +260,7 @@
 
     @media (max-width: 700px) {
       .masthead, .nav, .stats-bar, .main { padding-left: 20px; padding-right: 20px; }
+      .insight-section > div[style*="grid"] { grid-template-columns: 1fr !important; }
       .sources-grid { grid-template-columns: 1fr; }
       .nl-body { padding-left: 20px; }
       .nav-controls { gap: 8px; }
@@ -631,7 +658,83 @@ function renderJobs() {
     <div class="jobs-meta">
       <span>${analysis.postings_analyzed} postings analyzed · week of ${esc(analysis.run_date)}</span>
       <button class="jobs-pull-btn" id="jobs-pull-btn" onclick="triggerJobPull()">Refresh</button>
-    </div>
+    </div>`;
+
+  const insights = d.insights || {};
+
+  // Insight panel — only render if insights exist
+  if (insights.summary || (insights.rising && insights.rising.length)) {
+    h += `<div class="insight-section">`;
+
+    // Summary card
+    if (insights.summary) {
+      h += `<div class="insight-card">
+        <div class="insight-card-title">Market Summary · week of ${esc(analysis.run_date)}</div>
+        <div class="insight-summary">${esc(insights.summary)}</div>
+      </div>`;
+    }
+
+    // Rising skills
+    if (insights.rising && insights.rising.length) {
+      h += `<div class="insight-card">
+        <div class="insight-card-title">Rising Fast · invest now</div>
+        ${insights.rising.map(r => `
+          <div class="rising-item">
+            <div style="flex:1">
+              <div class="rising-skill">${esc(r.skill)}</div>
+              <div class="rising-why">${esc(r.why_rising)}</div>
+            </div>
+            <span class="urgency-badge urgency-${(r.urgency||'medium').toLowerCase()}">
+              ${esc(r.urgency || 'Medium')}
+            </span>
+          </div>`).join('')}
+      </div>`;
+    }
+
+    // Table stakes
+    if (insights.table_stakes && insights.table_stakes.length) {
+      h += `<div class="insight-card">
+        <div class="insight-card-title">Table Stakes · baseline requirements</div>
+        <div class="stakes-list">
+          ${insights.table_stakes.map(s => `<span class="stakes-chip">${esc(s)}</span>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    // Two-column row: differentiators + learning paths
+    h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">`;
+
+    if (insights.differentiators && insights.differentiators.length) {
+      h += `<div class="insight-card">
+        <div class="insight-card-title">Differentiators · senior signal</div>
+        ${insights.differentiators.map(d => `
+          <div class="diff-item">
+            <div class="diff-skill">${esc(d.skill)}</div>
+            <div class="diff-why">${esc(d.why_differentiates)}</div>
+          </div>`).join('')}
+      </div>`;
+    }
+
+    if (insights.learning_paths && insights.learning_paths.length) {
+      h += `<div class="insight-card">
+        <div class="insight-card-title">Learning Paths · top 3 rising skills</div>
+        ${insights.learning_paths.map(lp => `
+          <div class="lp-item">
+            <div class="lp-skill">${esc(lp.skill)}</div>
+            <div class="lp-row"><span class="lp-label">Resource</span><span class="lp-value">${esc(lp.resource)}</span></div>
+            <div class="lp-row"><span class="lp-label">Project</span><span class="lp-value">${esc(lp.project_idea)}</span></div>
+            <div class="lp-row"><span class="lp-label">Timeline</span><span class="lp-value">${esc(lp.time_to_proficiency)}</span></div>
+          </div>`).join('')}
+      </div>`;
+    }
+
+    h += `</div>`; // close grid
+    h += `</div>`; // close insight-section
+  }
+
+  h += `<div class="divider"></div>`;
+
+  h += `
     <div class="cat-filters">
       ${categories.map(c => `<button class="cat-filter ${state.jobsCatFilter===c?'active':''}"
         onclick="state.jobsCatFilter='${c}';render()">${esc(c)}</button>`).join('')}

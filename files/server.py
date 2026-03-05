@@ -262,6 +262,24 @@ def newsletters_today():
 # Job analysis API
 # ---------------------------------------------------------------------------
 
+def _get_job_insights(analysis_id: int) -> dict:
+    """Read the stored insight synthesis for a given analysis_id."""
+    from database import get_conn
+    import json
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT value FROM _meta WHERE key = ?",
+        (f"insights_{analysis_id}",)
+    ).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return {}
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return {}
+
+
 @app.get("/api/jobs/latest")
 def jobs_latest():
     """Return the most recent job analysis with all skills."""
@@ -275,9 +293,11 @@ def jobs_latest():
             s["example_companies"] = json.loads(s.get("example_companies") or "[]")
         except Exception:
             s["example_companies"] = []
+    insights = _get_job_insights(analysis["id"]) if analysis else {}
     return jsonify({
         "analysis": analysis,
         "skills": skills,
+        "insights": insights,
     })
 
 
@@ -297,7 +317,8 @@ def jobs_for_date(run_date):
             s["example_companies"] = json.loads(s.get("example_companies") or "[]")
         except Exception:
             s["example_companies"] = []
-    return jsonify({"analysis": analysis, "skills": skills})
+    insights = _get_job_insights(analysis["id"]) if analysis else {}
+    return jsonify({"analysis": analysis, "skills": skills, "insights": insights})
 
 
 @app.post("/api/jobs/pull")

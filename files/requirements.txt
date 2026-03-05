@@ -6,6 +6,8 @@ python-dotenv>=1.0
 
 # AI — Gemini via OpenAI-compatible endpoint
 openai>=1.30
+json-repair>=0.7
+
 google-generativeai>=0.8     # used for auth utilities (not direct calls)
 
 # Gmail API

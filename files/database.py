@@ -12,7 +12,8 @@ import sqlite3
 import os
 from datetime import datetime, timedelta, timezone, date
 
-DB_PATH = os.getenv("DB_PATH", "briefly.db")
+_DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "briefly.db")
+DB_PATH = os.getenv("DB_PATH", _DEFAULT_DB)
 
 
 def get_conn():
