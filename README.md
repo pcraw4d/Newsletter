@@ -27,6 +27,8 @@ serves everything via a JSON API and dashboard.
 │   ├── email_parser.py       ← MIME parsing, HTML stripping, link extraction
 │   ├── database.py           ← SQLite schema + query helpers
 │   ├── run.py                ← CLI entry point (used by Railway cron)
+│   ├── job_processor.py      ← Job market analysis (skills extraction, trends)
+│   ├── job_fetcher.py        ← Fetch PM job postings from Adzuna API
 │   ├── gmail_auth.py         ← OAuth flow to generate gmail_token.json
 │   ├── gmail_poller.py       ← Poll Gmail for newsletters in label
 │   ├── requirements.txt
@@ -119,6 +121,7 @@ railway up
 3. Railway auto-creates from `railway.toml`:
    - **web** — Flask server (inbound API + dashboard)
    - **pipeline** — Cron job (runs `python run.py` daily at 12:00 UTC)
+   - **job-analysis** — Cron job (runs `python run.py --jobs` Mondays at 9:00 UTC)
 
 ---
 
@@ -148,6 +151,8 @@ railway up
 | `python run.py --date 2026-03-04` | Target a specific date |
 | `python run.py --status` | Print queue depth and exit |
 | `python run.py --skip-cleanup` | Skip data retention purge and vacuum |
+| `python run.py --jobs` | Run job market analysis only |
+| `python run.py --jobs-also` | Run job analysis after newsletter pipeline |
 
 ---
 

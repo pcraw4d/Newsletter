@@ -26,6 +26,7 @@ from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
+JOB_ANALYSIS_ENABLED = os.getenv("JOB_ANALYSIS_ENABLED", "1") == "1"
 DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "30"))
 
 from database import init_db, get_unprocessed_newsletters, get_full_digest_for_date, get_junk_filtered_count_for_date, purge_old_data, vacuum_if_needed
@@ -46,6 +47,16 @@ def cmd_status():
         for n in queue:
             print(f"   • [{n['id']}] {n['sender_name']} — {n['subject'][:50]}")
     print()
+
+
+def cmd_jobs() -> dict:
+    print("\n💼 Starting job market analysis...")
+    try:
+        from job_processor import run_job_analysis
+        return run_job_analysis()
+    except Exception as e:
+        print(f"\n❌ Job analysis error: {e}\n")
+        return {"status": "failed", "error": str(e)}
 
 
 def cmd_cleanup(retention_days: int) -> None:
@@ -86,9 +97,17 @@ def main():
     parser.add_argument("--status",         action="store_true", help="Print status and exit")
     parser.add_argument("--skip-cleanup",   action="store_true",
                         help="Skip data retention purge and vacuum")
+    parser.add_argument("--jobs", action="store_true",
+                        help="Run job market analysis pipeline only")
+    parser.add_argument("--jobs-also", action="store_true",
+                        help="Run job analysis after the newsletter pipeline")
     args = parser.parse_args()
 
     init_db()
+
+    if args.jobs:
+        result = cmd_jobs()
+        sys.exit(0 if result.get("status") == "ok" else 1)
 
     if args.status:
         cmd_status()
@@ -109,6 +128,8 @@ def main():
     summary = run_pipeline(args.date)
     if not args.skip_cleanup:
         cmd_cleanup(DATA_RETENTION_DAYS)
+    if args.jobs_also and JOB_ANALYSIS_ENABLED:
+        cmd_jobs()
     sys.exit(0 if summary["newsletters_failed"] == 0 else 1)
 
 

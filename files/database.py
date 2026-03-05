@@ -105,6 +105,62 @@ def init_db():
                 ON themes(date DESC);
 
             -- ----------------------------------------------------------------
+            -- job_analyses: one row per weekly analysis run
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS job_analyses (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date          TEXT NOT NULL,       -- YYYY-MM-DD (Monday of the week)
+                queries           TEXT,                -- JSON array of search terms used
+                locations         TEXT,                -- JSON array of locations searched
+                postings_analyzed INTEGER DEFAULT 0,
+                created_at        TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_analyses_date
+                ON job_analyses(run_date DESC);
+
+            -- ----------------------------------------------------------------
+            -- job_postings: raw fetched job listings (deduped by external_id)
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS job_postings (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id  INTEGER NOT NULL REFERENCES job_analyses(id),
+                external_id  TEXT UNIQUE,
+                title        TEXT,
+                company      TEXT,
+                location     TEXT,
+                description  TEXT,
+                posted_at    TEXT,
+                source       TEXT DEFAULT 'adzuna',
+                created_at   TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_postings_analysis
+                ON job_postings(analysis_id);
+
+            CREATE INDEX IF NOT EXISTS idx_job_postings_external
+                ON job_postings(external_id);
+
+            -- ----------------------------------------------------------------
+            -- job_skills: AI-extracted skills aggregated per analysis run
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS job_skills (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_id      INTEGER NOT NULL REFERENCES job_analyses(id),
+                skill            TEXT NOT NULL,
+                category         TEXT,               -- Technical | Tool | Domain | Soft Skill | Credential
+                mention_count    INTEGER DEFAULT 1,
+                pct_of_jobs      REAL DEFAULT 0.0,   -- 0.0–1.0
+                trend            TEXT DEFAULT 'new', -- new | rising | stable | declining
+                prior_pct        REAL,               -- pct_of_jobs from previous week's analysis
+                example_companies TEXT,              -- JSON array of up to 3 company names
+                created_at       TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_skills_analysis
+                ON job_skills(analysis_id);
+
+            -- ----------------------------------------------------------------
             -- _meta: key-value store for maintenance state (e.g. last_vacuum)
             -- ----------------------------------------------------------------
             CREATE TABLE IF NOT EXISTS _meta (
@@ -363,6 +419,157 @@ def get_themes_for_date(date: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+# ---------------------------------------------------------------------------
+# Job posting analysis helpers
+# ---------------------------------------------------------------------------
+
+def insert_job_analysis(run_date: str, queries: str, locations: str) -> int:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO job_analyses (run_date, queries, locations) VALUES (?, ?, ?)",
+            (run_date, queries, locations),
+        )
+        row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def update_job_analysis_count(analysis_id: int, count: int) -> None:
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "UPDATE job_analyses SET postings_analyzed = ? WHERE id = ?",
+            (count, analysis_id),
+        )
+    conn.close()
+
+
+def insert_job_posting(analysis_id: int, external_id: str, title: str,
+                       company: str, location: str, description: str,
+                       posted_at: str) -> int:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            """
+            INSERT INTO job_postings
+                (analysis_id, external_id, title, company, location,
+                 description, posted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(external_id) DO NOTHING
+            """,
+            (analysis_id, external_id, title, company, location,
+             description, posted_at),
+        )
+        row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def insert_job_skill(analysis_id: int, skill: str, category: str,
+                     mention_count: int, pct_of_jobs: float, trend: str,
+                     prior_pct: float | None, example_companies: str) -> int:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            """
+            INSERT INTO job_skills
+                (analysis_id, skill, category, mention_count, pct_of_jobs,
+                 trend, prior_pct, example_companies)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (analysis_id, skill, category, mention_count, pct_of_jobs,
+             trend, prior_pct, example_companies),
+        )
+        row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def get_latest_job_analysis() -> dict | None:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM job_analyses ORDER BY run_date DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_job_analysis_for_date(run_date: str) -> dict | None:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM job_analyses WHERE run_date = ?", (run_date,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_job_skills_for_analysis(analysis_id: int) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT * FROM job_skills
+        WHERE analysis_id = ?
+        ORDER BY mention_count DESC
+        """,
+        (analysis_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_prior_week_skills(current_analysis_id: int) -> dict[str, float]:
+    """
+    Returns a {skill_name: pct_of_jobs} dict from the analysis run
+    immediately before the given analysis_id. Used for trend calculation.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        """
+        SELECT id FROM job_analyses
+        WHERE id < ?
+        ORDER BY run_date DESC LIMIT 1
+        """,
+        (current_analysis_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {}
+    prior_id = row[0]
+    rows = conn.execute(
+        "SELECT skill, pct_of_jobs FROM job_skills WHERE analysis_id = ?",
+        (prior_id,),
+    ).fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
+def delete_job_data_older_than(cutoff_date: str) -> dict:
+    """Used by the retention purge. Deletes in FK-safe order."""
+    conn = get_conn()
+    counts = {"job_skills": 0, "job_postings": 0, "job_analyses": 0}
+    with conn:
+        old_ids = [
+            r[0] for r in conn.execute(
+                "SELECT id FROM job_analyses WHERE run_date < ?",
+                (cutoff_date,)
+            ).fetchall()
+        ]
+        if old_ids:
+            ph = ",".join("?" * len(old_ids))
+            counts["job_skills"] = conn.execute(
+                f"DELETE FROM job_skills WHERE analysis_id IN ({ph})", old_ids
+            ).rowcount
+            counts["job_postings"] = conn.execute(
+                f"DELETE FROM job_postings WHERE analysis_id IN ({ph})", old_ids
+            ).rowcount
+            counts["job_analyses"] = conn.execute(
+                "DELETE FROM job_analyses WHERE run_date < ?", (cutoff_date,)
+            ).rowcount
+    conn.close()
+    return counts
+
+
 def get_full_digest_for_date(date: str) -> dict:
     """
     Return a single structured dict with everything needed to render
@@ -411,7 +618,15 @@ def purge_old_data(retention_days: int = 30) -> dict:
         "articles": 0,
         "themes": 0,
         "gmail_ingested": 0,
+        "job_skills": 0,
+        "job_postings": 0,
+        "job_analyses": 0,
     }
+
+    job_counts = delete_job_data_older_than(cutoff_date)
+    counts["job_skills"] = job_counts["job_skills"]
+    counts["job_postings"] = job_counts["job_postings"]
+    counts["job_analyses"] = job_counts["job_analyses"]
 
     conn = get_conn()
     with conn:

@@ -12,6 +12,7 @@ Endpoints:
   POST /test/ingest          ← inject a fake email (dev only)
 """
 
+import json
 import os
 import hmac
 import threading
@@ -28,6 +29,9 @@ from database import (
     get_newsletters_for_date,
     get_full_digest_for_date,
     get_junk_filtered_count_for_date,
+    get_latest_job_analysis,
+    get_job_skills_for_analysis,
+    get_job_analysis_for_date,
 )
 from email_parser import parse_raw_email
 
@@ -252,6 +256,96 @@ def newsletters_today():
             for r in rows
         ],
     })
+
+
+# ---------------------------------------------------------------------------
+# Job analysis API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/jobs/latest")
+def jobs_latest():
+    """Return the most recent job analysis with all skills."""
+    analysis = get_latest_job_analysis()
+    if not analysis:
+        return jsonify({"analysis": None, "skills": []}), 200
+    skills = get_job_skills_for_analysis(analysis["id"])
+    # Parse example_companies JSON string back to list for each skill
+    for s in skills:
+        try:
+            s["example_companies"] = json.loads(s.get("example_companies") or "[]")
+        except Exception:
+            s["example_companies"] = []
+    return jsonify({
+        "analysis": analysis,
+        "skills": skills,
+    })
+
+
+@app.get("/api/jobs/<run_date>")
+def jobs_for_date(run_date):
+    """Return job analysis for a specific YYYY-MM-DD date."""
+    try:
+        datetime.strptime(run_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "Invalid date. Use YYYY-MM-DD"}), 400
+    analysis = get_job_analysis_for_date(run_date)
+    if not analysis:
+        return jsonify({"analysis": None, "skills": []}), 200
+    skills = get_job_skills_for_analysis(analysis["id"])
+    for s in skills:
+        try:
+            s["example_companies"] = json.loads(s.get("example_companies") or "[]")
+        except Exception:
+            s["example_companies"] = []
+    return jsonify({"analysis": analysis, "skills": skills})
+
+
+@app.post("/api/jobs/pull")
+def trigger_job_pull():
+    """
+    Trigger a job analysis run in a background thread.
+    Returns 202 immediately.
+    Uses the same _job lock mechanism as /api/pull to prevent double-triggers.
+    """
+    with _job_lock:
+        if _job["running"]:
+            return jsonify({"ok": False, "error": "A pipeline run is already in progress"}), 409
+        _job["running"]     = True
+        _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
+        _job["finished_at"] = None
+        _job["result"]      = None
+        _job["error"]       = None
+        _job["log"]         = []
+
+    def _run():
+        import sys, io
+        log_lines = []
+        class _Cap:
+            def write(self, m):
+                if m.strip(): log_lines.append(m.rstrip())
+                sys.__stdout__.write(m)
+            def flush(self): sys.__stdout__.flush()
+        sys.stdout = _Cap()
+        try:
+            from job_processor import run_job_analysis
+            result = run_job_analysis()
+            with _job_lock:
+                _job["result"]      = result
+                _job["error"]       = None
+                _job["log"]         = log_lines
+                _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+                _job["running"]     = False
+        except Exception as e:
+            with _job_lock:
+                _job["error"]       = str(e)
+                _job["log"]         = log_lines
+                _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+                _job["running"]     = False
+        finally:
+            sys.stdout = sys.__stdout__
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Job analysis started"}), 202
 
 
 # ---------------------------------------------------------------------------
