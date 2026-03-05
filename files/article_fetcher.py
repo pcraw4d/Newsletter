@@ -12,7 +12,7 @@ Handles:
 
 import re
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
 # ---------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 # ---------------------------------------------------------------------------
 
 REQUEST_TIMEOUT = 10        # seconds per request
-MAX_TEXT_CHARS  = 80_000    # ~20k tokens — generous limit; Gemini's 1M context handles this easily
+MAX_TEXT_CHARS  = 25_000    # ~6k tokens per article — keeps prompt lean to avoid output truncation
 
 HEADERS = {
     "User-Agent": (
@@ -112,11 +112,29 @@ def _truncate(text: str, max_chars: int = MAX_TEXT_CHARS) -> str:
     return truncated + "\n\n[Article truncated — showing first portion only]"
 
 
+def _extract_meta_refresh_url(soup: BeautifulSoup, base_url: str) -> str | None:
+    """Extract redirect URL from <meta http-equiv="refresh" content="0;url=...">"""
+    meta = soup.find("meta", attrs={"http-equiv": re.compile(r"refresh", re.I)})
+    if not meta or not meta.get("content"):
+        return None
+    # content="0;url=https://..." or "url=https://..."
+    match = re.search(r"url=(.+?)(?:;|$)", meta["content"], re.I)
+    if not match:
+        return None
+    target = match.group(1).strip().strip("'\"")
+    if not target:
+        return None
+    return urljoin(base_url, target)
+
+
 # ---------------------------------------------------------------------------
 # Main fetch function
 # ---------------------------------------------------------------------------
 
-def fetch_article(url: str) -> dict:
+MAX_META_REFRESH_REDIRECTS = 2
+
+
+def fetch_article(url: str, _redirect_count: int = 0, _original_url: str | None = None) -> dict:
     """
     Fetch a URL and extract its readable text.
 
@@ -129,12 +147,14 @@ def fetch_article(url: str) -> dict:
         "note":    str,   # human-readable explanation on non-ok status
     }
     """
+    original_url = _original_url or url
+
     domain = urlparse(url).netloc.lower().replace("www.", "")
 
     # Skip known paywalled domains upfront
     if _is_likely_blocked(domain):
         return {
-            "url": url,
+            "url": original_url,
             "title": "",
             "text": "",
             "status": "blocked",
@@ -154,7 +174,7 @@ def fetch_article(url: str) -> dict:
         content_type = resp.headers.get("Content-Type", "")
         if "text/html" not in content_type:
             return {
-                "url": url,
+                "url": original_url,
                 "title": "",
                 "text": "",
                 "status": "failed",
@@ -166,8 +186,20 @@ def fetch_article(url: str) -> dict:
         raw_text = _extract_main_text(soup)
 
         if not raw_text or len(raw_text) < 100:
+            # Check for meta-refresh redirect (common on tracking/landing pages)
+            if _redirect_count < MAX_META_REFRESH_REDIRECTS:
+                target_url = _extract_meta_refresh_url(soup, url)
+                if target_url and target_url != url:
+                    result = fetch_article(
+                        target_url,
+                        _redirect_count=_redirect_count + 1,
+                        _original_url=original_url,
+                    )
+                    result["url"] = original_url
+                    return result
+
             return {
-                "url": url,
+                "url": original_url,
                 "title": title,
                 "text": "",
                 "status": "failed",
@@ -175,7 +207,7 @@ def fetch_article(url: str) -> dict:
             }
 
         return {
-            "url": url,
+            "url": original_url,
             "title": title,
             "text": _truncate(raw_text),
             "status": "ok",
@@ -183,16 +215,16 @@ def fetch_article(url: str) -> dict:
         }
 
     except requests.exceptions.Timeout:
-        return {"url": url, "title": "", "text": "", "status": "failed",
+        return {"url": original_url, "title": "", "text": "", "status": "failed",
                 "note": "Request timed out"}
     except requests.exceptions.TooManyRedirects:
-        return {"url": url, "title": "", "text": "", "status": "failed",
+        return {"url": original_url, "title": "", "text": "", "status": "failed",
                 "note": "Too many redirects"}
     except requests.exceptions.HTTPError as e:
-        return {"url": url, "title": "", "text": "", "status": "failed",
+        return {"url": original_url, "title": "", "text": "", "status": "failed",
                 "note": f"HTTP {e.response.status_code}"}
     except Exception as e:
-        return {"url": url, "title": "", "text": "", "status": "failed",
+        return {"url": original_url, "title": "", "text": "", "status": "failed",
                 "note": str(e)[:120]}
 
 

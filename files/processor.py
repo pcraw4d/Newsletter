@@ -5,7 +5,7 @@ Two main jobs:
   1. process_newsletter(id)  — per-newsletter: extract takeaways + summarise articles
   2. run_synthesis(date)     — cross-newsletter: identify themes across all newsletters
 
-Model: Google Gemini Flash 2.0
+Model: Google Gemini 2.5 Flash
   - Free tier: 15 requests/min, 1,500 requests/day — more than enough for a personal digest
   - Context window: 1,000,000 tokens — no more token limit errors
   - API: OpenAI-compatible endpoint, so the client is identical to before
@@ -54,7 +54,7 @@ _PROVIDERS = {
     "gemini": {
         "base_url":    "https://generativelanguage.googleapis.com/v1beta/openai/",
         "api_key_env": "GEMINI_API_KEY",
-        "model":       "gemini-2.0-flash",
+        "model":       "gemini-2.5-flash",
     },
     "groq": {
         "base_url":    "https://api.groq.com/openai/v1",
@@ -83,6 +83,97 @@ client = OpenAI(
 
 print(f"[processor] provider={PROVIDER}  model={MODEL}")
 
+# ---------------------------------------------------------------------------
+# JSON schemas for structured output (Gemini only)
+# ---------------------------------------------------------------------------
+
+NEWSLETTER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string"},
+        "takeaways": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "articles": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                },
+                "required": ["url", "title", "summary"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["category", "takeaways", "articles"],
+    "additionalProperties": False,
+}
+
+SYNTHESIS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "tag": {"type": "string"},
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "source_names": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "confidence": {"type": "string"},
+        },
+        "required": ["tag", "title", "summary", "source_names", "confidence"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _get_response_format(expect: str):
+    """Return response_format dict for Gemini structured output, or None for other providers."""
+    if PROVIDER != "gemini":
+        return None
+    schema = NEWSLETTER_SCHEMA if expect == "object" else SYNTHESIS_SCHEMA
+    name = "newsletter_response" if expect == "object" else "synthesis_response"
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": name,
+            "schema": schema,
+            "strict": True,
+        },
+    }
+
+
+def _log_llm_debug(resp, raw: str, error: str | None = None):
+    """Log raw API response details for debugging empty or parse failures."""
+    lines = ["   [DEBUG] LLM response details:"]
+    try:
+        if resp.choices:
+            choice = resp.choices[0]
+            lines.append(f"   [DEBUG]   finish_reason: {getattr(choice, 'finish_reason', 'N/A')}")
+            lines.append(f"   [DEBUG]   content length: {len(raw)} chars")
+            if len(raw) <= 200:
+                lines.append(f"   [DEBUG]   content: {repr(raw)}")
+            else:
+                lines.append(f"   [DEBUG]   content (first 200): {repr(raw[:200])}...")
+        else:
+            lines.append(f"   [DEBUG]   choices: empty")
+        if hasattr(resp, "usage") and resp.usage:
+            u = resp.usage
+            lines.append(f"   [DEBUG]   usage: prompt_tokens={getattr(u, 'prompt_tokens', 'N/A')} "
+                        f"completion_tokens={getattr(u, 'completion_tokens', 'N/A')} "
+                        f"total_tokens={getattr(u, 'total_tokens', 'N/A')}")
+    except Exception as e:
+        lines.append(f"   [DEBUG]   (could not extract: {e})")
+    if error:
+        lines.append(f"   [DEBUG]   error: {error}")
+    print("\n".join(lines))
+
 
 # ---------------------------------------------------------------------------
 # JSON-safe LLM caller with retry
@@ -95,18 +186,110 @@ print(f"[processor] provider={PROVIDER}  model={MODEL}")
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
-def _clean_json(raw: str) -> str:
-    """Strip markdown fences and leading/trailing prose."""
+def _extract_first_json(raw: str, expect: str) -> str | None:
+    """Find first complete JSON object or array by bracket matching."""
+    start_char = "{" if expect == "object" else "["
+    idx = raw.find(start_char)
+    if idx == -1:
+        return None
+
+    stack = [start_char]
+    i = idx + 1
+    in_string = False
+    escape = False
+    quote_char = None
+
+    while i < len(raw):
+        c = raw[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if in_string:
+            if c == quote_char:
+                in_string = False
+            i += 1
+            continue
+        if c == "\\":
+            escape = True
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            quote_char = '"'
+            i += 1
+            continue
+        if c == "{":
+            stack.append("{")
+        elif c == "[":
+            stack.append("[")
+        elif c == "}":
+            if stack and stack[-1] == "{":
+                stack.pop()
+                if not stack:
+                    return raw[idx : i + 1].strip()
+        elif c == "]":
+            if stack and stack[-1] == "[":
+                stack.pop()
+                if not stack:
+                    return raw[idx : i + 1].strip()
+        i += 1
+    return None
+
+
+def _clean_json(raw: str, expect: str = "object") -> str:
+    """Strip markdown fences and extract first complete JSON value."""
     match = _FENCE_RE.search(raw)
     if match:
         return match.group(1).strip()
-    for start, end in [('{', '}'), ('[', ']')]:
-        idx = raw.find(start)
-        if idx != -1:
-            last = raw.rfind(end)
-            if last > idx:
-                return raw[idx:last + 1].strip()
+    extracted = _extract_first_json(raw, expect)
+    if extracted:
+        return extracted
     return raw.strip()
+
+
+def _repair_truncated_json(raw: str, expect: str) -> str | None:
+    """
+    Attempt to repair JSON truncated mid-string (e.g. finish_reason: length).
+    Returns repaired string or None if repair fails.
+    """
+    s = raw.strip()
+    if not s or s[0] not in "{[":
+        return None
+    in_string = False
+    escape = False
+    stack = []
+    for i, c in enumerate(s):
+        if escape:
+            escape = False
+            continue
+        if in_string:
+            if c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+            continue
+        if c == "{":
+            stack.append("}")
+        elif c == "[":
+            stack.append("]")
+        elif c in "}]" and stack and stack[-1] == c:
+            stack.pop()
+    # Close unclosed string if we're inside one
+    if in_string:
+        s = s.rstrip()
+        if s.endswith("\\"):
+            s = s[:-1]
+        s += '"'
+    s += "".join(reversed(stack))
+    try:
+        json.loads(s)
+        return s
+    except json.JSONDecodeError:
+        return None
 
 
 def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | list:
@@ -119,16 +302,40 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
     last_error = None
 
     for attempt in range(1, retries + 1):
+        raw = ""
+        resp = None
         try:
-            resp = client.chat.completions.create(
-                model=MODEL,
-                max_tokens=2000,
-                temperature=0.2,
-                messages=messages,
-            )
+            kwargs = {
+                "model": MODEL,
+                "max_tokens": 8192,
+                "temperature": 0.2,
+                "messages": messages,
+            }
+            response_format = _get_response_format(expect)
+            if response_format:
+                kwargs["response_format"] = response_format
+
+            resp = client.chat.completions.create(**kwargs)
             raw = resp.choices[0].message.content or ""
-            cleaned = _clean_json(raw)
-            parsed = json.loads(cleaned)
+
+            if not raw.strip():
+                _log_llm_debug(resp, raw, "Empty response from model")
+                raise ValueError("Empty response from model")
+
+            cleaned = _clean_json(raw, expect)
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError as parse_err:
+                # If truncated (finish_reason: length), try to repair
+                finish = getattr(resp.choices[0], "finish_reason", None) if resp.choices else None
+                if finish == "length":
+                    repaired = _repair_truncated_json(cleaned, expect)
+                    if repaired:
+                        parsed = json.loads(repaired)
+                    else:
+                        raise parse_err
+                else:
+                    raise parse_err
 
             if expect == "array" and not isinstance(parsed, list):
                 raise ValueError(f"Expected JSON array, got {type(parsed).__name__}")
@@ -139,21 +346,37 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
 
         except (json.JSONDecodeError, ValueError) as e:
             last_error = e
-            print(f"   ⚠️  Attempt {attempt}/{retries} — JSON parse error: {e}")
+            if resp:
+                _log_llm_debug(resp, raw, str(e))
+            err_msg = "empty response" if "Empty response" in str(e) else f"JSON parse error: {e}"
+            print(f"   ⚠️  Attempt {attempt}/{retries} — {err_msg}")
             if attempt < retries:
-                messages = [
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": raw},
-                    {"role": "user", "content": (
-                        "Your response could not be parsed as valid JSON. "
-                        f"Return ONLY a valid JSON {'array' if expect == 'array' else 'object'}. "
-                        "No markdown fences, no explanation, no preamble."
-                    )},
-                ]
+                if raw.strip():
+                    messages = [
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": raw},
+                        {"role": "user", "content": (
+                            "Your response could not be parsed as valid JSON. "
+                            f"Return ONLY a valid JSON {'array' if expect == 'array' else 'object'}. "
+                            "No markdown fences, no explanation, no preamble."
+                        )},
+                    ]
+                else:
+                    messages = [
+                        {"role": "user", "content": prompt},
+                        {"role": "user", "content": (
+                            "You returned an empty response. "
+                            f"Return a valid JSON {'array' if expect == 'array' else 'object'}. "
+                            "If you cannot process this content, return a minimal valid structure "
+                            f"(e.g. empty {'[]' if expect == 'array' else '{}'} or with placeholder fields)."
+                        )},
+                    ]
                 time.sleep(1)
 
         except Exception as e:
             last_error = e
+            if resp:
+                _log_llm_debug(resp, raw, str(e))
             print(f"   ❌ API error on attempt {attempt}: {e}")
             if attempt < retries:
                 time.sleep(2 * attempt)
@@ -165,14 +388,19 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
 # Prompt builders
 # ---------------------------------------------------------------------------
 
+MAX_ARTICLES_IN_PROMPT = 25  # Limit articles passed to model to keep prompt lean
+
+
 def _build_newsletter_prompt(newsletter: dict, fetched_articles: list[dict]) -> str:
     """
-    Gemini's 1M token context means we can pass full article text without
-    worrying about truncation. Articles are passed in full up to their
-    MAX_TEXT_CHARS limit (set in article_fetcher.py).
+    Build prompt with newsletter body and linked articles. Articles are truncated
+    per MAX_TEXT_CHARS (article_fetcher.py). We pass at most MAX_ARTICLES_IN_PROMPT
+    to avoid oversized prompts that trigger output truncation.
     """
+    ok_articles = [a for a in fetched_articles if a["status"] == "ok" and a.get("text")]
+    articles_for_prompt = ok_articles[:MAX_ARTICLES_IN_PROMPT]
     articles_section = ""
-    for i, a in enumerate(fetched_articles, 1):
+    for i, a in enumerate(articles_for_prompt, 1):
         if a["status"] == "ok" and a["text"]:
             articles_section += f"""
 --- LINKED ARTICLE {i} ---
@@ -273,8 +501,11 @@ def process_newsletter(newsletter: dict) -> bool:
         fetched = fetch_articles(links)
 
     ok_count = sum(1 for a in fetched if a["status"] == "ok")
-    total_chars = sum(len(a.get("text", "")) for a in fetched if a["status"] == "ok")
-    print(f"   {ok_count}/{len(fetched)} articles fetched  ({total_chars:,} chars → passed to model)")
+    ok_articles = [a for a in fetched if a["status"] == "ok" and a.get("text")]
+    prompt_articles = ok_articles[:MAX_ARTICLES_IN_PROMPT]
+    total_chars = sum(len(a.get("text", "")) for a in prompt_articles)
+    cap_note = f" (capped at {MAX_ARTICLES_IN_PROMPT})" if len(ok_articles) > MAX_ARTICLES_IN_PROMPT else ""
+    print(f"   {ok_count}/{len(fetched)} articles fetched  ({total_chars:,} chars → passed to model{cap_note})")
 
     # 3. Call Gemini
     print(f"   Calling {PROVIDER} ({MODEL})...")
