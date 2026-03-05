@@ -25,7 +25,7 @@ from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
-from database import init_db, get_unprocessed_newsletters, get_full_digest_for_date
+from database import init_db, get_unprocessed_newsletters, get_full_digest_for_date, get_junk_filtered_count_for_date
 from processor import run_pipeline, run_synthesis
 
 
@@ -37,6 +37,7 @@ def cmd_status():
     print(f"   Unprocessed in queue    : {len(queue)}")
     print(f"   Newsletters today       : {len(digest['newsletters'])}")
     print(f"   Themes today            : {len(digest['themes'])}")
+    print(f"   Junk filtered today     : {get_junk_filtered_count_for_date(today)}")
     if queue:
         print(f"\n   Pending:")
         for n in queue:

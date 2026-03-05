@@ -36,6 +36,7 @@ from database import (
     insert_theme,
     delete_themes_for_date,
     mark_newsletter_processed,
+    set_newsletter_skipped,
 )
 from email_parser import extract_article_links
 from article_fetcher import fetch_articles
@@ -520,6 +521,25 @@ Order by confidence: HIGH first. Only surface themes the data genuinely supports
 # Per-newsletter processing
 # ---------------------------------------------------------------------------
 
+def _is_worth_processing(newsletter: dict) -> tuple[bool, str]:
+    """
+    Pre-flight validation: skip newsletters that are too short or have no content.
+    Returns (False, reason) if not worth processing, (True, "") otherwise.
+    """
+    plain_text = newsletter.get("plain_text") or ""
+    word_count = len(plain_text.split())
+
+    if word_count < 60:
+        return (False, f"plain text too short ({word_count} words, need ≥60)")
+
+    if word_count < 150:
+        links = extract_article_links(newsletter.get("raw_html") or "")
+        if len(links) == 0:
+            return (False, f"plain text too short ({word_count} words, need ≥150) and no article links")
+
+    return (True, "")
+
+
 def process_newsletter(newsletter: dict) -> bool:
     """
     Full pipeline for one newsletter:
@@ -533,6 +553,12 @@ def process_newsletter(newsletter: dict) -> bool:
     nid = newsletter["id"]
     print(f"\n📰 Processing id={nid}: '{newsletter['subject'][:60]}'")
     print(f"   From: {newsletter['sender_name']} <{newsletter['sender_email']}>")
+
+    ok, reason = _is_worth_processing(newsletter)
+    if not ok:
+        print(f"   ⏭  Skipping — {reason}")
+        set_newsletter_skipped(newsletter["id"], reason)
+        return True
 
     # 1. Extract links
     links = extract_article_links(newsletter.get("raw_html") or "")
@@ -605,7 +631,7 @@ def run_synthesis(target_date: str) -> bool:
     print(f"\n🔬 Running synthesis for {target_date}...")
 
     all_newsletters = get_newsletters_for_date(target_date)
-    processed = [n for n in all_newsletters if n.get("processed")]
+    processed = [n for n in all_newsletters if n.get("processed") and not n.get("skipped_reason")]
 
     print(f"   All newsletters for {target_date}: {len(all_newsletters)}")
     print(f"   Processed: {len(processed)} | Unprocessed: {len(all_newsletters) - len(processed)}")

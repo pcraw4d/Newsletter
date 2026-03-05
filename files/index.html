@@ -272,7 +272,8 @@
 
 <script>
 /* ── Constants & state ─────────────────────────────────── */
-const TODAY = new Date().toISOString().slice(0, 10);
+const _d = new Date();
+const TODAY = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
 let state = {
   currentDate: TODAY, view: 'digest',
   digest: null, loading: false, error: null,
@@ -285,7 +286,11 @@ const senderColor = e => { let h=0; for(let i=0;i<e.length;i++) h=(h*31+e.charCo
 const initials = n => (n||'?').charAt(0).toUpperCase();
 const CONF_COLOR = { HIGH:'#2B5C3F', MEDIUM:'#B58C1C', LOW:'#9E4F4F' };
 const confColor = c => CONF_COLOR[(c||'').split(' ')[0].toUpperCase()] || '#999';
-const offsetDate = (d,days) => { const dt=new Date(d+'T12:00:00'); dt.setDate(dt.getDate()+days); return dt.toISOString().slice(0,10); };
+const offsetDate = (d, days) => {
+  const dt = new Date(d + 'T12:00:00');
+  dt.setDate(dt.getDate() + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+};
 const fmtDate = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}); } catch { return ''; }};
 function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

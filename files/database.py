@@ -108,6 +108,21 @@ def init_db():
             conn.execute("ALTER TABLE newsletters ADD COLUMN category TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE newsletters ADD COLUMN content_fingerprint TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE newsletters ADD COLUMN skipped_reason TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletters_fingerprint
+                    ON newsletters(content_fingerprint)
+            """)
+        except sqlite3.OperationalError:
+            pass  # index already exists
     conn.close()
     print(f"[db] Database initialised at {DB_PATH}")
 
@@ -116,18 +131,33 @@ def init_db():
 # Helper functions used by the ingest layer
 # ---------------------------------------------------------------------------
 
+def get_newsletter_by_fingerprint(fingerprint: str) -> dict | None:
+    """Return the newsletter row if one exists with this content_fingerprint, else None."""
+    if not fingerprint:
+        return None
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM newsletters WHERE content_fingerprint = ?",
+        (fingerprint,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def insert_newsletter(sender_email, sender_name, subject, received_at,
-                      raw_html, plain_text) -> int:
+                      raw_html, plain_text, content_fingerprint: str = "",
+                      skipped_reason: str | None = None) -> int:
     """Insert a new newsletter row and return its id."""
     conn = get_conn()
     with conn:
+        processed = 1 if skipped_reason else 0
         cur = conn.execute(
             """
             INSERT INTO newsletters
-                (sender_email, sender_name, subject, received_at, raw_html, plain_text)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (sender_email, sender_name, subject, received_at, raw_html, plain_text, content_fingerprint, skipped_reason, processed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (sender_email, sender_name, subject, received_at, raw_html, plain_text),
+            (sender_email, sender_name, subject, received_at, raw_html, plain_text, content_fingerprint or None, skipped_reason, processed),
         )
         row_id = cur.lastrowid
     conn.close()
@@ -154,6 +184,17 @@ def mark_newsletter_processed(newsletter_id: int):
     conn.close()
 
 
+def set_newsletter_skipped(newsletter_id: int, reason: str):
+    """Mark a newsletter as skipped with a reason; sets processed=1 so it won't be retried."""
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "UPDATE newsletters SET skipped_reason = ?, processed = 1 WHERE id = ?",
+            (reason, newsletter_id),
+        )
+    conn.close()
+
+
 def get_newsletters_for_date(date_str: str):
     """Return all newsletters received on a given YYYY-MM-DD date."""
     conn = get_conn()
@@ -163,6 +204,17 @@ def get_newsletters_for_date(date_str: str):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_junk_filtered_count_for_date(date_str: str) -> int:
+    """Return count of newsletters skipped (skipped_reason IS NOT NULL) on a given date."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM newsletters WHERE date(received_at) = ? AND skipped_reason IS NOT NULL",
+        (date_str,),
+    ).fetchone()
+    conn.close()
+    return row[0] if row else 0
 
 
 # ---------------------------------------------------------------------------

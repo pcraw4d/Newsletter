@@ -20,7 +20,9 @@ Configuration (set in .env or Railway env vars):
 """
 
 import base64
+import hashlib
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -29,7 +31,46 @@ from googleapiclient.errors import HttpError
 
 from gmail_auth import get_credentials
 from email_parser import parse_raw_email
-from database import insert_newsletter, get_conn
+from database import insert_newsletter, get_conn, get_newsletter_by_fingerprint
+
+# ---------------------------------------------------------------------------
+# Junk subject filter
+# ---------------------------------------------------------------------------
+
+_JUNK_SUBJECT_RE = re.compile(
+    r"(?:"
+    r"order\s+confirmation|receipt\s+(?:for|#)|invoice\s+(?:for|#)?|"
+    r"shipment\s+confirmation|delivery\s+confirmation|payment\s+confirmation|"
+    r"booking\s+confirmation|"
+    r"password\s+reset|reset\s+your\s+password|verify\s+your\s+email|"
+    r"email\s+verification|account\s+confirmation|"
+    r"welcome\s+to\s+|you['']ve\s+been\s+invited|you['']ve\s+been\s+added|"
+    r"you['']ve\s+been\s+subscribed|you\s+have\s+been\s+invited|"
+    r"\d+%\s*off|\boff\s+\d+%|limited\s+time\s+offer|flash\s+sale|"
+    r"thank\s+you\s+for\s+your\s+(?:order|purchase|payment)|"
+    r"your\s+\w+(?:\s+\w+)?\s+is\s+(?:ready|confirmed|on\s+its\s+way)|"
+    r"unsubscribe|opt[-\s]?out(?:\s+of\s+emails)?"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_junk_subject(subject: str) -> bool:
+    """Return True if the subject matches common transactional/promotional patterns."""
+    return bool(_JUNK_SUBJECT_RE.search(subject or ""))
+
+
+def _content_fingerprint(sender_email: str, subject: str, plain_text: str) -> str:
+    """
+    Compute a content-based fingerprint for deduplication.
+    Normalises inputs and returns the first 16 chars of SHA-256 hex digest.
+    """
+    sender = (sender_email or "").lower().strip()
+    subj = (subject or "").lower().strip()
+    text = (plain_text or "").strip()[:500]
+    payload = f"{sender}:{subj}:{text}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -39,6 +80,8 @@ GMAIL_LABEL     = os.getenv("GMAIL_LABEL", "Newsletters")
 GMAIL_SENDERS   = os.getenv("GMAIL_SENDERS", "")       # comma-separated
 GMAIL_DAYS_BACK = int(os.getenv("GMAIL_DAYS_BACK", "1"))
 GMAIL_MAX_FETCH = int(os.getenv("GMAIL_MAX_FETCH", "50"))
+
+MIN_PLAIN_TEXT_WORDS = 80
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +209,7 @@ def poll_gmail() -> dict:
         service = _build_service()
     except Exception as e:
         print(f"   ❌ Could not connect to Gmail API: {e}")
-        return {"fetched": 0, "ingested": 0, "skipped": 0, "failed": 0, "query": ""}
+        return {"fetched": 0, "ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0, "query": ""}
 
     query = _build_query()
     print(f"   Query      : {query}")
@@ -180,12 +223,12 @@ def poll_gmail() -> dict:
         ).execute()
     except HttpError as e:
         print(f"   ❌ Gmail list error: {e}")
-        return {"fetched": 0, "ingested": 0, "skipped": 0, "failed": 0, "query": query}
+        return {"fetched": 0, "ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0, "query": query}
 
     messages = result.get("messages", [])
     print(f"   Found {len(messages)} message(s) matching query\n")
 
-    ingested = skipped = failed = 0
+    ingested = skipped = failed = junk_skipped = 0
 
     for msg_meta in messages:
         gmail_id = msg_meta["id"]
@@ -209,6 +252,87 @@ def poll_gmail() -> dict:
             failed += 1
             continue
 
+        plain_text = parsed["plain_text"] or ""
+        raw_html = parsed["raw_html"] or ""
+        fingerprint = _content_fingerprint(
+            parsed["sender_email"], parsed["subject"], plain_text
+        )
+
+        # Junk subject filter — insert with skipped_reason so it's visible in API
+        if _is_junk_subject(parsed["subject"]):
+            junk_skipped += 1
+            print(f"   ⛔ [junk subject] {parsed['subject'][:60]}")
+            try:
+                insert_newsletter(
+                    sender_email=parsed["sender_email"],
+                    sender_name=parsed["sender_name"],
+                    subject=parsed["subject"],
+                    received_at=parsed["received_at"],
+                    raw_html=raw_html,
+                    plain_text=plain_text,
+                    content_fingerprint=fingerprint,
+                    skipped_reason="junk subject",
+                )
+                _mark_ingested(gmail_id)
+                _mark_read(service, gmail_id)
+            except Exception as e:
+                print(f"   ⚠️  Could not record skipped email: {e}")
+            continue
+
+        # Content quality: minimum word count
+        word_count = len(plain_text.split())
+        if word_count < MIN_PLAIN_TEXT_WORDS:
+            junk_skipped += 1
+            print(f"   ⛔ [too short — {word_count} words] {parsed['subject'][:60]}")
+            try:
+                insert_newsletter(
+                    sender_email=parsed["sender_email"],
+                    sender_name=parsed["sender_name"],
+                    subject=parsed["subject"],
+                    received_at=parsed["received_at"],
+                    raw_html=raw_html,
+                    plain_text=plain_text,
+                    content_fingerprint=fingerprint,
+                    skipped_reason=f"too short ({word_count} words)",
+                )
+                _mark_ingested(gmail_id)
+                _mark_read(service, gmail_id)
+            except Exception as e:
+                print(f"   ⚠️  Could not record skipped email: {e}")
+            continue
+
+        # Content quality: text density (only for HTML-heavy emails)
+        if len(raw_html) > 2000:
+            ratio = len(plain_text) / len(raw_html)
+            if ratio < 0.03:
+                junk_skipped += 1
+                print(f"   ⛔ [low text density — {ratio:.1%}] {parsed['subject'][:60]}")
+                try:
+                    insert_newsletter(
+                        sender_email=parsed["sender_email"],
+                        sender_name=parsed["sender_name"],
+                        subject=parsed["subject"],
+                        received_at=parsed["received_at"],
+                        raw_html=raw_html,
+                        plain_text=plain_text,
+                        content_fingerprint=fingerprint,
+                        skipped_reason=f"low text density ({ratio:.1%})",
+                    )
+                    _mark_ingested(gmail_id)
+                    _mark_read(service, gmail_id)
+                except Exception as e:
+                    print(f"   ⚠️  Could not record skipped email: {e}")
+                continue
+
+        # Content-based deduplication (re-sends, A/B variants with different Gmail IDs)
+        existing = get_newsletter_by_fingerprint(fingerprint)
+        if existing:
+            junk_skipped += 1
+            print(f"   ⛔ [duplicate content — id={existing['id']}] {parsed['subject'][:60]}")
+            _mark_ingested(gmail_id)
+            _mark_read(service, gmail_id)
+            continue
+
         # Insert into DB
         try:
             nl_id = insert_newsletter(
@@ -218,6 +342,7 @@ def poll_gmail() -> dict:
                 received_at=parsed["received_at"],
                 raw_html=parsed["raw_html"],
                 plain_text=parsed["plain_text"],
+                content_fingerprint=fingerprint,
             )
             _mark_ingested(gmail_id)
             _mark_read(service, gmail_id)
@@ -233,14 +358,15 @@ def poll_gmail() -> dict:
         # Small delay to stay well within Gmail API rate limits
         time.sleep(0.3)
 
-    print(f"\n   Poll complete — ingested: {ingested} | skipped: {skipped} | failed: {failed}")
+    print(f"\n   Poll complete — ingested: {ingested} | skipped: {skipped} | junk: {junk_skipped} | failed: {failed}")
 
     return {
-        "fetched":  len(messages),
-        "ingested": ingested,
-        "skipped":  skipped,
-        "failed":   failed,
-        "query":    query,
+        "fetched":      len(messages),
+        "ingested":     ingested,
+        "skipped":      skipped,
+        "junk_skipped": junk_skipped,
+        "failed":       failed,
+        "query":        query,
     }
 
 

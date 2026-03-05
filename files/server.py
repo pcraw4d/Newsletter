@@ -27,6 +27,7 @@ from database import (
     get_unprocessed_newsletters,
     get_newsletters_for_date,
     get_full_digest_for_date,
+    get_junk_filtered_count_for_date,
 )
 from email_parser import parse_raw_email
 
@@ -106,10 +107,10 @@ def _run_pipeline_job():
             poll_result = poll_gmail()
         except RuntimeError as e:
             log_lines.append(f"⚠️  Gmail poll skipped: {e}")
-            poll_result = {"ingested": 0, "skipped": 0, "failed": 0}
+            poll_result = {"ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0}
         except Exception as e:
             log_lines.append(f"❌ Gmail poll error: {e}")
-            poll_result = {"ingested": 0, "skipped": 0, "failed": 0}
+            poll_result = {"ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0}
 
         # Step 2: AI processing + synthesis
         from processor import run_pipeline
@@ -203,6 +204,7 @@ def status():
         "unprocessed_count":   len(get_unprocessed_newsletters()),
         "newsletters_today":   len(digest["newsletters"]),
         "themes_today":        len(digest["themes"]),
+        "junk_filtered_today": get_junk_filtered_count_for_date(today),
         "pipeline_running":    pipeline_running,
     })
 
@@ -221,6 +223,7 @@ def newsletters_today():
                 "subject": r["subject"],
                 "received_at": r["received_at"],
                 "processed": bool(r["processed"]),
+                "skipped_reason": r.get("skipped_reason"),
             }
             for r in rows
         ],
@@ -247,13 +250,17 @@ def test_ingest():
     msg.attach(MIMEText(data.get("body", "<p>Test</p>"), "html"))
 
     parsed = parse_raw_email(msg.as_bytes())
+    plain_text = parsed.get("plain_text") or ""
+    if len(plain_text.split()) < 10:
+        return jsonify({"ok": False, "error": "body too short for testing"}), 400
+
     nl_id = insert_newsletter(
         sender_email=parsed["sender_email"],
         sender_name=parsed["sender_name"],
         subject=parsed["subject"],
         received_at=parsed["received_at"],
         raw_html=parsed["raw_html"],
-        plain_text=parsed["plain_text"],
+        plain_text=plain_text,
     )
     return jsonify({"ok": True, "newsletter_id": nl_id}), 201
 
