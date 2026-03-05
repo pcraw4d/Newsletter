@@ -359,7 +359,7 @@ function showDrawerResult(result) {
     { label: 'Fetched', val: result.fetched ?? '—' },
     { label: 'Ingested', val: result.ingested ?? '—' },
     { label: 'Processed', val: result.newsletters_processed ?? '—' },
-    { label: 'Themes', val: result.themes?.length ?? '—' },
+    { label: 'Synthesis', val: result.synthesis_run ? '✅' : '❌' },
   ].map(s => `<div class="pipeline-stat"><strong>${s.val}</strong>${s.label}</div>`).join('');
 }
 
@@ -487,9 +487,9 @@ function renderDigest(newsletters, themes) {
               const akey=`${n.id}-${a.id}`, aopen=state.expandedArticle===akey;
               return `<div class="article-card ${aopen?'expanded':''}" data-article-key="${akey}">
                 <div class="article-row"><div class="article-title">${esc(a.title||a.url)}</div></div>
-                <div class="article-summary">${esc(a.summary)}</div>
+                <div class="article-summary">${a.summary ? esc(a.summary) : '<em style="color:var(--muted);font-style:italic">Article could not be extracted — open original to read.</em>'}</div>
                 <div class="article-footer">
-                  <div class="article-badge"><span class="article-badge-dot"></span>${a.fetch_status==='ok'?'Extracted &amp; analysed':esc(a.fetch_status)}</div>
+                  <div class="article-badge"><span class="article-badge-dot"></span>${a.fetch_status==='ok'?'Extracted &amp; analysed':`<span style="color:var(--accent)">${esc(a.fetch_status)}</span>`}</div>
                   <a class="article-link" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗ original</a>
                 </div></div>`;
             }).join('')}` : ''}

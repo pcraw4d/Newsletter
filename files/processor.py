@@ -32,6 +32,7 @@ from database import (
     insert_article,
     insert_takeaway,
     delete_takeaways_for_newsletter,
+    set_newsletter_category,
     insert_theme,
     delete_themes_for_date,
     mark_newsletter_processed,
@@ -385,6 +386,46 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
 
 
 # ---------------------------------------------------------------------------
+# Two-pass article processing: summarise first, then build newsletter prompt
+# ---------------------------------------------------------------------------
+
+def _summarize_article(article: dict) -> str:
+    """
+    Summarise a single article in 3–4 sentences. Returns empty string on any exception.
+    Uses global client and MODEL.
+    """
+    try:
+        text = (article.get("text") or "").strip()
+        if not text:
+            return ""
+        text = text[:8000]  # Truncate to 8,000 chars before sending
+        title = article.get("title") or "Untitled"
+        url = article.get("url") or ""
+
+        prompt = f"""Summarise this article in 3–4 sentences. Focus on:
+- The core argument or thesis
+- Key data points, numbers, and names
+- Implications or significance
+
+Article title: {title}
+URL: {url}
+
+Article text:
+{text}"""
+
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.1,
+        )
+        raw = resp.choices[0].message.content or ""
+        return raw.strip()
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Prompt builders
 # ---------------------------------------------------------------------------
 
@@ -393,22 +434,25 @@ MAX_ARTICLES_IN_PROMPT = 25  # Limit articles passed to model to keep prompt lea
 
 def _build_newsletter_prompt(newsletter: dict, fetched_articles: list[dict]) -> str:
     """
-    Build prompt with newsletter body and linked articles. Articles are truncated
-    per MAX_TEXT_CHARS (article_fetcher.py). We pass at most MAX_ARTICLES_IN_PROMPT
-    to avoid oversized prompts that trigger output truncation.
+    Build prompt with newsletter body and linked article summaries (pre_summary).
+    Newsletter body capped at 4,000 chars. Articles use pre_summary, not full text.
     """
     ok_articles = [a for a in fetched_articles if a["status"] == "ok" and a.get("text")]
     articles_for_prompt = ok_articles[:MAX_ARTICLES_IN_PROMPT]
     articles_section = ""
     for i, a in enumerate(articles_for_prompt, 1):
-        if a["status"] == "ok" and a["text"]:
-            articles_section += f"""
+        pre_summary = a.get("pre_summary", "")
+        articles_section += f"""
 --- LINKED ARTICLE {i} ---
 Title: {a['title']}
 URL:   {a['url']}
-Content:
-{a['text']}
+Summary:
+{pre_summary}
 """
+
+    plain_text = newsletter.get("plain_text") or ""
+    if len(plain_text) > 4000:
+        plain_text = plain_text[:4000] + "\n\n[Truncated — newsletter body exceeded 4000 chars]"
 
     return f"""You are an expert analyst processing a newsletter for a busy professional.
 
@@ -417,7 +461,7 @@ Sender:  {newsletter['sender_name']} <{newsletter['sender_email']}>
 Subject: {newsletter['subject']}
 
 NEWSLETTER BODY:
-{newsletter['plain_text']}
+{plain_text}
 {articles_section}
 
 Analyse the newsletter body AND all linked articles provided above. Return a JSON object with this EXACT structure:
@@ -502,10 +546,12 @@ def process_newsletter(newsletter: dict) -> bool:
 
     ok_count = sum(1 for a in fetched if a["status"] == "ok")
     ok_articles = [a for a in fetched if a["status"] == "ok" and a.get("text")]
-    prompt_articles = ok_articles[:MAX_ARTICLES_IN_PROMPT]
-    total_chars = sum(len(a.get("text", "")) for a in prompt_articles)
-    cap_note = f" (capped at {MAX_ARTICLES_IN_PROMPT})" if len(ok_articles) > MAX_ARTICLES_IN_PROMPT else ""
-    print(f"   {ok_count}/{len(fetched)} articles fetched  ({total_chars:,} chars → passed to model{cap_note})")
+    n = len(ok_articles)
+    for i, a in enumerate(ok_articles, 1):
+        print(f"   Summarising article {i}/{n}...")
+        a["pre_summary"] = _summarize_article(a)
+    cap_note = f" (capped at {MAX_ARTICLES_IN_PROMPT})" if n > MAX_ARTICLES_IN_PROMPT else ""
+    print(f"   {ok_count}/{len(fetched)} articles fetched{cap_note}")
 
     # 3. Call Gemini
     print(f"   Calling {PROVIDER} ({MODEL})...")
@@ -519,6 +565,7 @@ def process_newsletter(newsletter: dict) -> bool:
 
     # 4a. Store takeaways
     delete_takeaways_for_newsletter(nid)
+    set_newsletter_category(nid, result.get("category", ""))
     takeaways = [t.strip() for t in result.get("takeaways", []) if str(t).strip()]
     for bullet in takeaways:
         insert_takeaway(nid, bullet)
@@ -532,6 +579,8 @@ def process_newsletter(newsletter: dict) -> bool:
         if not url:
             continue
         meta = fetched_map.get(url, {})
+        if not art.get("summary", "") and meta.get("status", "") != "ok":
+            continue
         insert_article(
             newsletter_id=nid,
             url=url,
@@ -558,6 +607,9 @@ def run_synthesis(target_date: str) -> bool:
     all_newsletters = get_newsletters_for_date(target_date)
     processed = [n for n in all_newsletters if n.get("processed")]
 
+    print(f"   All newsletters for {target_date}: {len(all_newsletters)}")
+    print(f"   Processed: {len(processed)} | Unprocessed: {len(all_newsletters) - len(processed)}")
+
     if not processed:
         print("   No processed newsletters found — skipping")
         return False
@@ -565,6 +617,8 @@ def run_synthesis(target_date: str) -> bool:
     print(f"   Synthesising across {len(processed)} newsletter(s)...")
     for n in processed:
         n["takeaways"] = get_takeaways_for_newsletter(n["id"])
+
+    print(f"   Takeaway counts: { {n['sender_name']: len(n['takeaways']) for n in processed} }")
 
     try:
         themes = _llm_call(_build_synthesis_prompt(processed), expect="array")

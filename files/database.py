@@ -44,6 +44,7 @@ def init_db():
                 raw_html      TEXT,               -- original HTML body
                 plain_text    TEXT,               -- stripped plaintext
                 processed     INTEGER DEFAULT 0,  -- 0 = pending, 1 = done
+                category      TEXT,
                 created_at    TEXT    DEFAULT (datetime('now'))
             );
 
@@ -103,6 +104,10 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_themes_date
                 ON themes(date DESC);
         """)
+        try:
+            conn.execute("ALTER TABLE newsletters ADD COLUMN category TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
     conn.close()
     print(f"[db] Database initialised at {DB_PATH}")
 
@@ -226,6 +231,13 @@ def delete_takeaways_for_newsletter(newsletter_id: int):
     conn = get_conn()
     with conn:
         conn.execute("DELETE FROM takeaways WHERE newsletter_id = ?", (newsletter_id,))
+    conn.close()
+
+
+def set_newsletter_category(newsletter_id: int, category: str) -> None:
+    conn = get_conn()
+    with conn:
+        conn.execute("UPDATE newsletters SET category = ? WHERE id = ?", (category, newsletter_id))
     conn.close()
 
 

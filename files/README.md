@@ -1,133 +1,114 @@
 # Briefly — AI Newsletter Digest
 
-Receives forwarded newsletters via SendGrid, extracts key takeaways and linked
-articles using Groq (Llama 3.3 70B), synthesises cross-newsletter themes, and
-serves everything via a JSON API to the dashboard.
+Polls newsletters from Gmail via the Gmail API, extracts key takeaways and linked
+articles using Google Gemini 2.5 Flash, synthesises cross-newsletter themes, and
+serves everything via a JSON API and dashboard.
 
 ## Stack
 
-| Component    | Choice                          |
-|--------------|---------------------------------|
-| Hosting      | Railway                         |
-| Database     | SQLite on Railway Volume        |
-| Model API    | Groq — Llama 3.3 70B (free)    |
-| Email        | SendGrid Inbound Parse          |
-| Cron         | Railway Cron Service            |
+| Component | Choice |
+|-----------|--------|
+| Hosting | Railway |
+| Database | SQLite on Railway Volume (mount at `/data`, set `DB_PATH=/data/briefly.db`) |
+| AI Model | Google Gemini 2.5 Flash via OpenAI-compatible endpoint (free tier) |
+| Email | Gmail API polling (no SendGrid, no MX records) |
+| Cron | Railway Cron Service (defined in `railway.toml`) |
 
 ---
 
 ## Project structure
 
 ```
-briefly/
-├── server.py          ← Flask server (webhook + dashboard API)
-├── processor.py       ← AI pipeline (Groq calls, takeaways, synthesis)
+├── server.py          ← Flask server (dashboard API + pull trigger)
+├── processor.py       ← AI pipeline (Gemini calls, takeaways, synthesis)
 ├── article_fetcher.py ← Fetch & extract text from linked article URLs
 ├── email_parser.py    ← MIME parsing, HTML stripping, link extraction
-├── database.py        ← SQLite schema + all query helpers
+├── database.py        ← SQLite schema + query helpers
 ├── run.py             ← CLI entry point (used by Railway cron)
+├── gmail_auth.py      ← OAuth flow to generate gmail_token.json
+├── gmail_poller.py    ← Poll Gmail for newsletters in label
 ├── requirements.txt
 ├── Procfile           ← gunicorn start command for Railway web service
 ├── railway.toml       ← Railway service + cron configuration
-└── env.example        ← copy to .env for local dev
+├── env.example        ← copy to .env for local dev
+└── static/index.html ← Dashboard SPA
 ```
 
 ---
 
 ## Local development
 
+### Setup order
+
+1. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Get Gemini API key** — [aistudio.google.com](https://aistudio.google.com) → Get API Key (free, no credit card)
+
+3. **Set up Gmail OAuth**
+   - [console.cloud.google.com](https://console.cloud.google.com) → create project → enable Gmail API
+   - Create **Desktop** OAuth credentials
+   - Save as `gmail_credentials.json` in project root
+   - Run `python gmail_auth.py` to generate `gmail_token.json`
+
+4. **Create Gmail label** — Create a label called `Newsletters` and apply it to newsletter senders via Gmail filters
+
+5. **Configure environment**
+   ```bash
+   cp env.example .env
+   ```
+   Fill in `GEMINI_API_KEY` and `GMAIL_TOKEN_JSON` (paste full contents of `gmail_token.json`)
+
+6. **Start server**
+   ```bash
+   python server.py
+   ```
+   Open http://localhost:5001
+
+7. **Run pipeline** — Press "Pull Now" in the UI, or run `python run.py` from CLI
+
+### Test ingest (optional)
+
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Configure
-cp env.example .env
-# Edit .env:
-#   GROQ_API_KEY=gsk_...          ← get from console.groq.com (free)
-#   WEBHOOK_SECRET=any_string     ← any random string for local testing
-#   DB_PATH=briefly.db            ← stays as default locally
-
-# 3. Start the server
-python server.py
-# Server runs on http://localhost:5001
-
-# 4. Inject a test newsletter
 curl -X POST http://localhost:5001/test/ingest \
   -H "Content-Type: application/json" \
   -d '{
     "sender_email": "editor@netinterest.co",
     "sender_name": "Net Interest",
     "subject": "The Credit Cycle Turns",
-    "body": "<p>Charge-offs rising across consumer fintechs. <a href=\"https://techcrunch.com/2026/03/ai-compliance\">Read the TC piece</a>.</p>"
+    "body": "<p>Charge-offs rising across consumer fintechs. <a href=\"https://example.com/article\">Read more</a>.</p>"
   }'
-
-# 5. Run the AI pipeline manually
-python run.py
-
-# 6. Check the digest API
-curl http://localhost:5001/api/digest | python3 -m json.tool
 ```
-
----
-
-## Getting your Groq API key
-
-1. Go to **console.groq.com**
-2. Sign up (free, no credit card)
-3. Click **API Keys** → **Create API Key**
-4. Copy and paste into `.env` as `GROQ_API_KEY`
-
-Free tier limits: 14,400 requests/day, 500,000 tokens/minute — comfortably
-enough for a personal newsletter digest running once daily.
-
----
-
-## SendGrid setup (inbound email)
-
-1. Create a free SendGrid account at **sendgrid.com**
-2. Settings → Inbound Parse → **Add Host & URL**
-3. Set the webhook URL to: `https://<your-railway-domain>/inbound`
-4. Add your domain's MX record pointing to `mx.sendgrid.net`
-5. In Gmail, create a filter: matching senders → **Forward to** your digest address
-
-To verify the webhook secret, add a custom header in SendGrid:
-  - Header name: `X-Briefly-Secret`
-  - Value: same as your `WEBHOOK_SECRET` env var
 
 ---
 
 ## Railway deployment
 
 ```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login and initialise
 railway login
 railway init
-
-# Deploy
 railway up
 ```
 
-### After deploying:
+### After deploying
 
-**Add a Volume** (for persistent SQLite):
-1. Railway dashboard → your project → **Volumes** → **New Volume**
-2. Mount path: `/data`
-3. Set `DB_PATH=/data/briefly.db` in Railway environment variables
+1. **Add Volume** — Railway dashboard → Volumes → New Volume → mount at `/data`
 
-**Set environment variables** in Railway dashboard → Variables:
-```
-GROQ_API_KEY=gsk_...
-WEBHOOK_SECRET=your_secret
-DB_PATH=/data/briefly.db
-FLASK_DEBUG=0
-```
+2. **Set environment variables** (Railway dashboard → Variables):
 
-Railway will automatically create two services from `railway.toml`:
-- **web** — always running, handles inbound webhooks + serves API
-- **pipeline** — runs `python run.py` daily at 12:00 UTC (7am EST)
+   | Variable | Value |
+   |----------|-------|
+   | `GEMINI_API_KEY` | From aistudio.google.com |
+   | `GMAIL_TOKEN_JSON` | Full JSON from `gmail_token.json` |
+   | `GMAIL_LABEL` | `Newsletters` (or your label name) |
+   | `DB_PATH` | `/data/briefly.db` |
+   | `FLASK_DEBUG` | `0` |
+
+3. Railway auto-creates from `railway.toml`:
+   - **web** — Flask server (inbound API + dashboard)
+   - **pipeline** — Cron job (runs `python run.py` daily at 12:00 UTC)
 
 ---
 
@@ -135,10 +116,12 @@ Railway will automatically create two services from `railway.toml`:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/inbound` | SendGrid webhook receiver |
+| GET | `/` | Dashboard SPA |
 | GET | `/api/digest` | Today's full digest |
 | GET | `/api/digest/<YYYY-MM-DD>` | Digest for a specific date |
 | GET | `/api/status` | Health check + queue depth |
+| GET | `/api/pull/status` | Pipeline job state (running, result, log) |
+| POST | `/api/pull` | Trigger Gmail poll + AI pipeline (returns 202) |
 | GET | `/api/newsletters/today` | Raw newsletter list |
 | POST | `/test/ingest` | Inject a test email (dev only) |
 
@@ -146,19 +129,24 @@ Railway will automatically create two services from `railway.toml`:
 
 ## CLI reference
 
-```bash
-python run.py                    # process queue + run synthesis (today)
-python run.py --date 2026-03-01  # process a specific date
-python run.py --synthesis-only   # re-run synthesis without reprocessing
-python run.py --status           # print queue depth and exit
-```
+| Command | Description |
+|---------|-------------|
+| `python run.py` | Full run: poll Gmail + process + synthesise |
+| `python run.py --no-poll` | Skip Gmail fetch, process queued only |
+| `python run.py --poll-only` | Fetch from Gmail only, no processing |
+| `python run.py --synthesis-only` | Re-run synthesis without reprocessing |
+| `python run.py --date 2026-03-04` | Target a specific date |
+| `python run.py --status` | Print queue depth and exit |
+
+---
 
 ## Switching AI providers
 
-Change `MODEL_PROVIDER` in your `.env` or Railway variables — no code changes:
+Set `MODEL_PROVIDER` in `.env` or Railway variables — no code changes:
 
 | Provider | .env value | API key env var |
-|----------|-----------|-----------------|
-| Groq (default) | `groq` | `GROQ_API_KEY` |
+|----------|------------|-----------------|
+| Gemini (default) | `gemini` | `GEMINI_API_KEY` |
+| Groq | `groq` | `GROQ_API_KEY` |
 | Together AI | `together` | `TOGETHER_API_KEY` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
