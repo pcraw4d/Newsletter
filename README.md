@@ -13,6 +13,7 @@ serves everything via a JSON API and dashboard.
 | AI Model | Google Gemini 2.5 Flash via OpenAI-compatible endpoint (free tier) |
 | Email | Gmail API polling (no SendGrid, no MX records) |
 | Cron | Railway Cron Service (defined in `railway.toml`) |
+| Job Data | Adzuna Jobs API (free tier) |
 
 ---
 
@@ -27,8 +28,8 @@ serves everything via a JSON API and dashboard.
 │   ├── email_parser.py       ← MIME parsing, HTML stripping, link extraction
 │   ├── database.py           ← SQLite schema + query helpers
 │   ├── run.py                ← CLI entry point (used by Railway cron)
-│   ├── job_processor.py      ← Job market analysis (skills extraction, trends)
 │   ├── job_fetcher.py        ← Fetch PM job postings from Adzuna API
+│   ├── job_processor.py      ← AI skill extraction + weekly trend synthesis
 │   ├── gmail_auth.py         ← OAuth flow to generate gmail_token.json
 │   ├── gmail_poller.py       ← Poll Gmail for newsletters in label
 │   ├── requirements.txt
@@ -93,6 +94,15 @@ curl -X POST http://localhost:5001/test/ingest \
 
 ---
 
+## Job analysis setup
+
+1. Register at [developer.adzuna.com](https://developer.adzuna.com) → My Apps → Create App
+2. Copy App ID and App Key into `.env`
+3. Run manually: `python run.py --jobs`
+4. Railway runs this automatically every Monday at 9am UTC via the `job-analysis` cron service defined in `railway.toml`
+
+---
+
 ## Railway deployment
 
 ```bash
@@ -135,6 +145,9 @@ railway up
 | GET | `/api/status` | Health check + queue depth |
 | GET | `/api/pull/status` | Pipeline job state (running, result, log) |
 | POST | `/api/pull` | Trigger Gmail poll + AI pipeline (returns 202) |
+| GET | `/api/jobs/latest` | Most recent job skill analysis |
+| GET | `/api/jobs/<YYYY-MM-DD>` | Job analysis for a specific week |
+| POST | `/api/jobs/pull` | Trigger a job analysis run (returns 202) |
 | GET | `/api/newsletters/today` | Raw newsletter list |
 | POST | `/test/ingest` | Inject a test email (dev only) |
 
@@ -152,7 +165,7 @@ railway up
 | `python run.py --status` | Print queue depth and exit |
 | `python run.py --skip-cleanup` | Skip data retention purge and vacuum |
 | `python run.py --jobs` | Run job market analysis only |
-| `python run.py --jobs-also` | Run job analysis after newsletter pipeline |
+| `python run.py --jobs-also` | Run after newsletter pipeline |
 
 ---
 

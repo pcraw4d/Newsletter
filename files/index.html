@@ -167,6 +167,37 @@
     .source-stat { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 0.06em; }
     .source-stat strong { font-family: var(--serif); font-size: 14px; color: var(--ink); font-weight: 700; display: block; margin-bottom: 1px; }
 
+    /* Skill cards */
+    .skill-card { border:1px solid var(--rule); background:var(--paper); padding:14px 18px; margin-bottom:8px; display:flex; align-items:center; gap:16px; transition:background 0.15s; }
+    .skill-card:hover { background:var(--paper-2); }
+    .skill-rank { font-family:var(--serif); font-size:22px; font-weight:700; color:var(--rule); min-width:28px; line-height:1; }
+    .skill-info { flex:1; }
+    .skill-name { font-size:15px; font-weight:700; margin-bottom:4px; }
+    .skill-companies { font-family:var(--mono); font-size:9.5px; color:var(--muted); }
+    .skill-right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; flex-shrink:0; }
+    .skill-pct { font-family:var(--serif); font-size:22px; font-weight:700; }
+    .skill-pct-label { font-family:var(--mono); font-size:9px; color:var(--muted); letter-spacing:0.06em; }
+    .skill-cat { font-family:var(--mono); font-size:8.5px; letter-spacing:0.08em; padding:2px 7px; border-radius:2px; background:var(--paper-3); border:1px solid var(--rule); color:var(--muted); white-space:nowrap; }
+
+    /* Trend badges */
+    .trend-badge { font-family:var(--mono); font-size:9px; letter-spacing:0.06em; padding:2px 6px; border-radius:2px; display:inline-flex; align-items:center; gap:3px; }
+    .trend-new      { background:#EDF7ED; color:#2B5C3F; border:1px solid #B8DDB8; }
+    .trend-rising   { background:#FDF7ED; color:#8B5C1C; border:1px solid #DDB888; }
+    .trend-stable   { background:#F0F0F0; color:#666;    border:1px solid #CCC; }
+    .trend-declining{ background:#FDF0ED; color:#8B1C1C; border:1px solid #DDB8B8; }
+
+    /* Category filter bar */
+    .cat-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+    .cat-filter { font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; padding:5px 12px; border:1px solid var(--rule); background:transparent; color:var(--muted); cursor:pointer; border-radius:3px; transition:all 0.15s; }
+    .cat-filter.active { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+    .cat-filter:hover:not(.active) { background:var(--paper-3); color:var(--ink); }
+
+    /* Jobs meta bar */
+    .jobs-meta { font-family:var(--mono); font-size:10px; color:var(--muted); margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .jobs-pull-btn { font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase; padding:6px 14px; border-radius:3px; cursor:pointer; border:1px solid var(--accent-2); color:var(--accent-2); background:transparent; transition:all 0.2s; }
+    .jobs-pull-btn:hover:not(:disabled) { background:var(--accent-2); color:#fff; }
+    .jobs-pull-btn:disabled { opacity:0.5; cursor:default; }
+
     /* Trends */
     .trend-row { border: 1px solid var(--rule); background: var(--paper); padding: 18px 22px; margin-bottom: 10px; display: flex; align-items: center; gap: 20px; }
     .trend-rank { font-family: var(--serif); font-size: 28px; font-weight: 700; color: var(--rule); min-width: 32px; line-height: 1; }
@@ -224,6 +255,7 @@
     <button class="nav-tab active" data-view="digest">Digest</button>
     <button class="nav-tab" data-view="sources">Sources</button>
     <button class="nav-tab" data-view="trends">Trends</button>
+    <button class="nav-tab" data-view="jobs">Jobs</button>
   </div>
   <div class="nav-controls">
     <button class="pull-btn" id="pull-btn" title="Fetch new newsletters from Gmail and run AI pipeline">
@@ -279,6 +311,7 @@ let state = {
   digest: null, loading: false, error: null,
   expandedTheme: null, expandedNl: null, expandedArticle: null,
   pullRunning: false, pollInterval: null,
+  jobsData: null, jobsLoading: false, jobsError: null, jobsCatFilter: 'All',
 };
 
 const PALETTE = ['#2B5C3F','#B5491C','#1E3D6B','#7B4F9E','#5C7A2B','#9E4F4F','#2B6B7B','#B58C1C'];
@@ -311,7 +344,6 @@ async function fetchPullStatus() {
   const r = await fetch('/api/pull/status');
   return r.json();
 }
-
 /* ── Load digest ───────────────────────────────────────── */
 async function load(date) {
   state.loading = true; state.error = null;
@@ -322,6 +354,38 @@ async function load(date) {
     state.currentDate = date;
   } catch(e) { state.error = e.message; }
   finally { state.loading = false; render(); }
+}
+
+/* ── Load jobs ─────────────────────────────────────────── */
+async function loadJobs() {
+  state.jobsLoading = true; state.jobsError = null;
+  render();
+  try {
+    const r = await fetch('/api/jobs/latest');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    state.jobsData = await r.json();
+  } catch(e) { state.jobsError = e.message; }
+  finally { state.jobsLoading = false; render(); }
+}
+
+async function triggerJobPull() {
+  const btn = document.getElementById('jobs-pull-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  try {
+    const r = await fetch('/api/jobs/pull', { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    drawerLog.innerHTML = '';
+    drawerRes.style.display = 'none';
+    openDrawer();
+    setPullRunning(true);
+    drawerTitle.textContent = 'Job analysis running…';
+    drawerSpinner.style.display = 'inline';
+    await startPollingPipelineStatus();
+    await loadJobs();
+  } catch(e) {
+    alert('Could not start job analysis: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Analysis'; }
+  }
 }
 
 /* ── Pull Now flow ─────────────────────────────────────── */
@@ -360,12 +424,20 @@ function updateDrawerLog(lines) {
 function showDrawerResult(result) {
   if (!result) return;
   drawerRes.style.display = 'flex';
-  drawerRes.innerHTML = [
-    { label: 'Fetched', val: result.fetched ?? '—' },
-    { label: 'Ingested', val: result.ingested ?? '—' },
-    { label: 'Processed', val: result.newsletters_processed ?? '—' },
-    { label: 'Synthesis', val: result.synthesis_run ? '✅' : '❌' },
-  ].map(s => `<div class="pipeline-stat"><strong>${s.val}</strong>${s.label}</div>`).join('');
+  const isJob = result.postings_analyzed !== undefined;
+  const stats = isJob
+    ? [
+        { label: 'Postings', val: result.postings_analyzed ?? '—' },
+        { label: 'Skills', val: result.skills_identified ?? '—' },
+        { label: 'Status', val: result.status === 'ok' ? '✅' : '❌' },
+      ]
+    : [
+        { label: 'Fetched', val: result.fetched ?? '—' },
+        { label: 'Ingested', val: result.ingested ?? '—' },
+        { label: 'Processed', val: result.newsletters_processed ?? '—' },
+        { label: 'Synthesis', val: result.synthesis_run ? '✅' : '❌' },
+      ];
+  drawerRes.innerHTML = stats.map(s => `<div class="pipeline-stat"><strong>${s.val}</strong>${s.label}</div>`).join('');
 }
 
 async function startPollingPipelineStatus() {
@@ -386,8 +458,9 @@ async function startPollingPipelineStatus() {
           drawerTitle.textContent = '✅ Pipeline complete';
           showDrawerResult(status.result);
         }
-        // Refresh the digest to show new results
-        await load(state.currentDate);
+        // Refresh current view
+        if (state.view === 'jobs') await loadJobs();
+        else await load(state.currentDate);
       }
     } catch(e) { /* ignore transient poll errors */ }
   }, 1500);
@@ -440,6 +513,7 @@ function render() {
   if (state.view === 'digest')    h += renderDigest(newsletters, themes);
   else if (state.view === 'sources') h += renderSources(newsletters);
   else if (state.view === 'trends')  h += renderTrends(newsletters, themes);
+  else if (state.view === 'jobs')    h += renderJobs();
   main.innerHTML = h;
   attachHandlers();
 }
@@ -527,6 +601,66 @@ function renderSources(newsletters) {
   return h + `</div>`;
 }
 
+/* ── Jobs view ─────────────────────────────────────────── */
+function renderJobs() {
+  const d = state.jobsData;
+  if (state.jobsLoading) return `<div class="loading"><div class="loading-spinner"></div><div class="loading-text">Loading job analysis…</div></div>`;
+  if (state.jobsError) return `<div class="error-bar"><span class="error-text">⚠ ${esc(state.jobsError)}</span><button class="error-retry" onclick="loadJobs()">Retry</button></div>`;
+
+  if (!d || !d.analysis) return `
+    <div class="jobs-meta"><span></span>
+      <button class="jobs-pull-btn" id="jobs-pull-btn" onclick="triggerJobPull()">Run Analysis</button>
+    </div>
+    <div class="empty"><div class="empty-icon">💼</div>
+      <div class="empty-title">No job analysis yet</div>
+      <div class="empty-sub">Click <strong>Run Analysis</strong> to fetch PM job postings<br>and identify in-demand skills.</div>
+    </div>`;
+
+  const skills = d.skills || [];
+  const analysis = d.analysis;
+  const categories = ['All', ...new Set(skills.map(s => s.category).filter(Boolean))];
+
+  const filtered = state.jobsCatFilter === 'All'
+    ? skills
+    : skills.filter(s => s.category === state.jobsCatFilter);
+
+  const trendLabel = { new:'✦ New', rising:'↑ Rising', stable:'→ Stable', declining:'↓ Declining' };
+  const trendClass = { new:'trend-new', rising:'trend-rising', stable:'trend-stable', declining:'trend-declining' };
+
+  let h = `
+    <div class="jobs-meta">
+      <span>${analysis.postings_analyzed} postings analyzed · week of ${esc(analysis.run_date)}</span>
+      <button class="jobs-pull-btn" id="jobs-pull-btn" onclick="triggerJobPull()">Refresh</button>
+    </div>
+    <div class="cat-filters">
+      ${categories.map(c => `<button class="cat-filter ${state.jobsCatFilter===c?'active':''}"
+        onclick="state.jobsCatFilter='${c}';render()">${esc(c)}</button>`).join('')}
+    </div>
+    <div class="section-label">Top Skills · ${filtered.length} ${state.jobsCatFilter==='All'?'across all categories':esc(state.jobsCatFilter)}</div>`;
+
+  filtered.slice(0, 30).forEach((s, i) => {
+    const pct = Math.round((s.pct_of_jobs || 0) * 100);
+    const companies = (s.example_companies || []).slice(0, 3).join(', ');
+    const badge = trendLabel[s.trend] || s.trend;
+    const badgeClass = trendClass[s.trend] || 'trend-stable';
+    h += `<div class="skill-card fade-up">
+      <div class="skill-rank">${i + 1}</div>
+      <div class="skill-info">
+        <div class="skill-name">${esc(s.skill)}</div>
+        <div class="skill-companies">${companies ? 'e.g. ' + esc(companies) : ''}</div>
+      </div>
+      <div class="skill-right">
+        <div><span class="skill-pct" style="color:${pct>50?'var(--accent-2)':pct>25?'var(--ink)':'var(--muted)'}">${pct}%</span></div>
+        <div class="skill-pct-label">of jobs</div>
+        <span class="trend-badge ${badgeClass}">${badge}</span>
+        <span class="skill-cat">${esc(s.category || '')}</span>
+      </div>
+    </div>`;
+  });
+
+  return h;
+}
+
 /* ── Trends view ───────────────────────────────────────── */
 function renderTrends(newsletters, themes) {
   let h = `<div class="section-label">Signals · today's themes ranked by confidence</div>`;
@@ -571,6 +705,7 @@ document.querySelectorAll('.nav-tab').forEach(btn => btn.addEventListener('click
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   state.view = btn.dataset.view;
+  if (state.view === 'jobs' && state.jobsData === null && !state.jobsLoading) loadJobs();
   render();
 }));
 document.getElementById('btn-prev').addEventListener('click', () => { if (!state.loading) load(offsetDate(state.currentDate, -1)); });
