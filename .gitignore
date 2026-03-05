@@ -1,6 +1,8 @@
 # Environment and secrets
 .env
 *.env.local
+gmail_credentials.json
+gmail_token.json
 
 # Database
 *.db

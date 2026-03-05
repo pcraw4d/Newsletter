@@ -1,15 +1,21 @@
 """
-run.py — CLI entry point for the Briefly AI processing pipeline.
+run.py — CLI entry point for the Briefly pipeline.
+
+Full run order:
+  1. Poll Gmail for new newsletters  (gmail_poller)
+  2. Process each unprocessed newsletter through the AI pipeline  (processor)
+  3. Run cross-newsletter synthesis  (processor)
 
 Usage:
-  python run.py                  # process today's queue + run synthesis
-  python run.py --date 2026-03-04  # process + synthesise a specific date
-  python run.py --synthesis-only   # skip per-newsletter processing, re-run synthesis
-  python run.py --status           # print queue depth and exit
+  python run.py                     # full run: poll + process + synthesise
+  python run.py --no-poll           # skip Gmail fetch, process what's already queued
+  python run.py --poll-only         # fetch from Gmail only, don't process
+  python run.py --synthesis-only    # re-run synthesis without reprocessing
+  python run.py --date 2026-03-04   # target a specific date for processing/synthesis
+  python run.py --status            # print queue depth and exit
 
-Cron (runs every morning at 7am):
-  Add to crontab with: crontab -e
-  0 7 * * * cd /path/to/briefly && python run.py >> logs/pipeline.log 2>&1
+Railway cron (runs daily at 12:00 UTC / 7am EST):
+  Configured in railway.toml — no manual crontab needed.
 """
 
 import argparse
@@ -27,12 +33,10 @@ def cmd_status():
     queue = get_unprocessed_newsletters()
     today = date.today().isoformat()
     digest = get_full_digest_for_date(today)
-
     print(f"\n📊 Briefly Status — {today}")
-    print(f"   Unprocessed newsletters in queue : {len(queue)}")
-    print(f"   Newsletters processed today      : {len(digest['newsletters'])}")
-    print(f"   Themes synthesised today         : {len(digest['themes'])}")
-
+    print(f"   Unprocessed in queue    : {len(queue)}")
+    print(f"   Newsletters today       : {len(digest['newsletters'])}")
+    print(f"   Themes today            : {len(digest['themes'])}")
     if queue:
         print(f"\n   Pending:")
         for n in queue:
@@ -40,46 +44,50 @@ def cmd_status():
     print()
 
 
-def cmd_run(target_date: str):
-    summary = run_pipeline(target_date)
-    sys.exit(0 if summary["newsletters_failed"] == 0 else 1)
-
-
-def cmd_synthesis_only(target_date: str):
-    ok = run_synthesis(target_date)
-    sys.exit(0 if ok else 1)
+def cmd_poll() -> dict:
+    """Fetch new emails from Gmail. Returns poll summary."""
+    try:
+        from gmail_poller import poll_gmail
+        return poll_gmail()
+    except RuntimeError as e:
+        # Auth not set up yet — surface a clear message
+        print(f"\n⚠️  Gmail auth not configured: {e}")
+        print("   Run 'python gmail_auth.py' to set up access.\n")
+        return {"fetched": 0, "ingested": 0, "skipped": 0, "failed": 0}
+    except Exception as e:
+        print(f"\n❌ Gmail poll error: {e}\n")
+        return {"fetched": 0, "ingested": 0, "skipped": 0, "failed": 0}
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Briefly — AI newsletter digest pipeline"
-    )
-    parser.add_argument(
-        "--date",
-        default=date.today().isoformat(),
-        help="Target date (YYYY-MM-DD). Defaults to today.",
-    )
-    parser.add_argument(
-        "--synthesis-only",
-        action="store_true",
-        help="Skip per-newsletter processing; re-run synthesis only.",
-    )
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Print queue depth and today's digest stats, then exit.",
-    )
+    parser = argparse.ArgumentParser(description="Briefly — newsletter digest pipeline")
+    parser.add_argument("--date", default=date.today().isoformat())
+    parser.add_argument("--no-poll",        action="store_true", help="Skip Gmail fetch")
+    parser.add_argument("--poll-only",      action="store_true", help="Only fetch from Gmail")
+    parser.add_argument("--synthesis-only", action="store_true", help="Re-run synthesis only")
+    parser.add_argument("--status",         action="store_true", help="Print status and exit")
     args = parser.parse_args()
 
-    # Ensure DB and schema exist
     init_db()
 
     if args.status:
         cmd_status()
-    elif args.synthesis_only:
-        cmd_synthesis_only(args.date)
-    else:
-        cmd_run(args.date)
+        return
+
+    if args.synthesis_only:
+        ok = run_synthesis(args.date)
+        sys.exit(0 if ok else 1)
+
+    # Gmail poll step
+    if not args.no_poll:
+        cmd_poll()
+
+    if args.poll_only:
+        return
+
+    # AI processing + synthesis
+    summary = run_pipeline(args.date)
+    sys.exit(0 if summary["newsletters_failed"] == 0 else 1)
 
 
 if __name__ == "__main__":

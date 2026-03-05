@@ -6,7 +6,8 @@ Handles:
   - Timeouts and connection errors gracefully
   - Paywalled / bot-blocked pages (returns partial content with a flag)
   - Heavy JS-rendered pages (fetches raw HTML, extracts what it can)
-  - Token budget: truncates extracted text so it doesn't blow up Claude's context
+  - Token budget: Gemini Flash 2.0 has a 1M token context window, so we can be generous.
+  Truncation is a last-resort safeguard against truly enormous pages, not a routine cap.
 """
 
 import re
@@ -19,7 +20,7 @@ from bs4 import BeautifulSoup
 # ---------------------------------------------------------------------------
 
 REQUEST_TIMEOUT = 10        # seconds per request
-MAX_TEXT_CHARS  = 12_000    # ~3k tokens — enough context without burning budget
+MAX_TEXT_CHARS  = 80_000    # ~20k tokens — generous limit; Gemini's 1M context handles this easily
 
 HEADERS = {
     "User-Agent": (

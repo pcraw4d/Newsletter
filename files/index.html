@@ -7,9 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <style>
-    /* ── Reset & tokens ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
       --ink:        #1A1814;
       --paper:      #F5F0E8;
@@ -23,628 +21,180 @@
       --serif:      'Libre Baskerville', Georgia, serif;
       --mono:       'DM Mono', 'Courier New', monospace;
     }
-
     html { font-size: 16px; }
-    body {
-      background: var(--paper);
-      color: var(--ink);
-      font-family: var(--serif);
-      min-height: 100vh;
-      line-height: 1.6;
-    }
-
-    /* ── Noise texture overlay ───────────────────────────────── */
+    body { background: var(--paper); color: var(--ink); font-family: var(--serif); min-height: 100vh; line-height: 1.6; }
     body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 9999;
-      opacity: 0.035;
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0.035;
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
       background-size: 200px 200px;
     }
 
-    /* ── Masthead ─────────────────────────────────────────────── */
-    .masthead {
-      border-bottom: 3px double var(--ink);
-      padding: 18px 48px 14px;
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 24px;
-    }
+    /* Masthead */
+    .masthead { border-bottom: 3px double var(--ink); padding: 18px 48px 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
     .masthead-left { display: flex; align-items: baseline; gap: 20px; }
-    .wordmark {
-      font-family: var(--serif);
-      font-size: 34px;
-      font-weight: 700;
-      letter-spacing: -1px;
-      color: var(--ink);
-      line-height: 1;
-    }
+    .wordmark { font-family: var(--serif); font-size: 34px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
     .wordmark em { color: var(--accent); font-style: italic; }
-    .edition {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding-bottom: 2px;
-    }
-    .masthead-date {
-      font-family: var(--mono);
-      font-size: 10.5px;
-      color: var(--muted);
-      letter-spacing: 0.06em;
-      text-align: right;
-    }
+    .edition { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .masthead-date { font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.06em; text-align: right; }
 
-    /* ── Nav ─────────────────────────────────────────────────── */
-    .nav {
-      border-bottom: 1px solid var(--rule);
-      padding: 0 48px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: var(--paper);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .nav-tabs { display: flex; gap: 0; }
-    .nav-tab {
-      font-family: var(--mono);
-      font-size: 10.5px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 13px 20px 11px;
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      border-bottom: 2px solid transparent;
-      transition: color 0.15s, border-color 0.15s;
-    }
+    /* Nav */
+    .nav { border-bottom: 1px solid var(--rule); padding: 0 48px; display: flex; align-items: center; justify-content: space-between; background: var(--paper); position: sticky; top: 0; z-index: 100; gap: 16px; }
+    .nav-tabs { display: flex; }
+    .nav-tab { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 13px 20px 11px; cursor: pointer; border: none; background: transparent; color: var(--muted); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
     .nav-tab:hover { color: var(--ink); }
     .nav-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
 
+    /* Nav right controls */
+    .nav-controls { display: flex; align-items: center; gap: 12px; }
     .date-nav { display: flex; align-items: center; gap: 8px; }
-    .date-btn {
-      font-family: var(--mono);
-      font-size: 11px;
-      padding: 5px 10px;
-      border: 1px solid var(--rule);
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      border-radius: 3px;
-      transition: all 0.15s;
-    }
+    .date-btn { font-family: var(--mono); font-size: 11px; padding: 5px 10px; border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer; border-radius: 3px; transition: all 0.15s; }
     .date-btn:hover:not(:disabled) { background: var(--paper-3); color: var(--ink); }
     .date-btn:disabled { opacity: 0.35; cursor: default; }
-    .date-display {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--ink);
-      letter-spacing: 0.06em;
-      min-width: 82px;
-      text-align: center;
-    }
+    .date-display { font-family: var(--mono); font-size: 10px; color: var(--ink); letter-spacing: 0.06em; min-width: 82px; text-align: center; }
 
-    /* ── Stats bar ───────────────────────────────────────────── */
-    .stats-bar {
-      border-bottom: 1px solid var(--rule-light);
-      padding: 10px 48px;
-      display: flex;
-      gap: 32px;
-      background: var(--paper-2);
+    /* Pull button */
+    .pull-btn {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 7px 14px; border-radius: 3px; cursor: pointer; transition: all 0.2s;
+      border: 1px solid var(--accent-2); color: var(--accent-2); background: transparent;
+      display: flex; align-items: center; gap: 7px; white-space: nowrap;
     }
+    .pull-btn:hover:not(:disabled) { background: var(--accent-2); color: #fff; }
+    .pull-btn:disabled { opacity: 0.5; cursor: default; }
+    .pull-btn.running { border-color: var(--muted); color: var(--muted); }
+    .pull-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .pull-dot.spinning { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Stats bar */
+    .stats-bar { border-bottom: 1px solid var(--rule-light); padding: 10px 48px; display: flex; gap: 32px; background: var(--paper-2); }
     .stat { display: flex; align-items: baseline; gap: 7px; }
-    .stat-value {
-      font-family: var(--serif);
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--ink);
-      line-height: 1;
-    }
-    .stat-label {
-      font-family: var(--mono);
-      font-size: 9.5px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .stat-divider {
-      width: 1px;
-      background: var(--rule);
-      align-self: stretch;
-      margin: 2px 0;
-    }
+    .stat-value { font-family: var(--serif); font-size: 20px; font-weight: 700; line-height: 1; }
+    .stat-label { font-family: var(--mono); font-size: 9.5px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+    .stat-divider { width: 1px; background: var(--rule); align-self: stretch; margin: 2px 0; }
 
-    /* ── Main layout ─────────────────────────────────────────── */
+    /* Pipeline drawer */
+    .pipeline-drawer {
+      background: #1A1814; color: #C8C0B0; font-family: var(--mono); font-size: 11px;
+      max-height: 0; overflow: hidden; transition: max-height 0.4s ease;
+      border-bottom: 1px solid #333;
+    }
+    .pipeline-drawer.open { max-height: 320px; }
+    .pipeline-inner { padding: 16px 48px; }
+    .pipeline-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .pipeline-title { color: #fff; letter-spacing: 0.12em; text-transform: uppercase; font-size: 10px; display: flex; align-items: center; gap: 8px; }
+    .pipeline-close { background: none; border: none; color: #666; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+    .pipeline-close:hover { color: #fff; }
+    .pipeline-log { max-height: 200px; overflow-y: auto; line-height: 1.7; color: #999; }
+    .pipeline-log .log-ok    { color: #52A879; }
+    .pipeline-log .log-err   { color: #D4695A; }
+    .pipeline-log .log-head  { color: #E8C547; }
+    .pipeline-result { margin-top: 12px; padding-top: 12px; border-top: 1px solid #333; display: flex; gap: 20px; }
+    .pipeline-stat { color: #666; font-size: 10px; }
+    .pipeline-stat strong { color: #fff; font-size: 13px; font-family: var(--serif); display: block; }
+
+    /* Main */
     .main { max-width: 960px; margin: 0 auto; padding: 40px 48px 80px; }
+    .section-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+    .section-label::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
 
-    /* ── Section label ───────────────────────────────────────── */
-    .section-label {
-      font-family: var(--mono);
-      font-size: 9.5px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 18px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .section-label::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--rule);
-    }
-
-    /* ── Theme cards ─────────────────────────────────────────── */
+    /* Theme cards */
     .themes { margin-bottom: 48px; }
-
-    .theme-card {
-      border: 1px solid var(--rule);
-      border-left: 3px solid var(--accent);
-      background: var(--paper);
-      margin-bottom: 12px;
-      cursor: pointer;
-      transition: background 0.15s, box-shadow 0.15s;
-    }
+    .theme-card { border: 1px solid var(--rule); border-left: 3px solid var(--accent); background: var(--paper); margin-bottom: 12px; cursor: pointer; transition: background 0.15s; }
     .theme-card:hover { background: var(--paper-2); }
     .theme-card.expanded { border-left-color: var(--accent-2); }
-
-    .theme-header {
-      padding: 18px 22px;
-      display: flex;
-      align-items: flex-start;
-      gap: 16px;
-    }
+    .theme-header { padding: 18px 22px; display: flex; align-items: flex-start; gap: 16px; }
     .theme-header-text { flex: 1; }
-    .theme-tag {
-      font-family: var(--mono);
-      font-size: 8.5px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 6px;
-    }
+    .theme-tag { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
     .theme-card.expanded .theme-tag { color: var(--accent-2); }
-    .theme-title {
-      font-size: 16.5px;
-      font-weight: 700;
-      line-height: 1.38;
-      color: var(--ink);
-    }
-    .theme-chevron {
-      color: var(--muted);
-      font-size: 11px;
-      margin-top: 4px;
-      transition: transform 0.2s;
-      flex-shrink: 0;
-    }
+    .theme-title { font-size: 16.5px; font-weight: 700; line-height: 1.38; }
+    .theme-chevron { color: var(--muted); font-size: 11px; margin-top: 4px; transition: transform 0.2s; flex-shrink: 0; }
     .theme-card.expanded .theme-chevron { transform: rotate(180deg); }
-
-    .theme-body {
-      display: none;
-      padding: 0 22px 18px;
-      border-top: 1px solid var(--rule-light);
-      margin-top: 0;
-    }
+    .theme-body { display: none; padding: 0 22px 18px; border-top: 1px solid var(--rule-light); }
     .theme-card.expanded .theme-body { display: block; }
+    .theme-summary { font-size: 14px; line-height: 1.72; color: #3A3530; margin-top: 14px; margin-bottom: 14px; }
+    .theme-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .source-chip { font-family: var(--mono); font-size: 9.5px; color: var(--muted); background: var(--paper-3); border: 1px solid var(--rule); padding: 3px 9px; border-radius: 2px; }
+    .confidence { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; margin-left: auto; display: flex; align-items: center; gap: 5px; }
+    .confidence-dot { width: 5px; height: 5px; border-radius: 50%; }
 
-    .theme-summary {
-      font-size: 14px;
-      line-height: 1.72;
-      color: #3A3530;
-      margin-top: 14px;
-      margin-bottom: 14px;
-    }
-    .theme-meta {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .source-chip {
-      font-family: var(--mono);
-      font-size: 9.5px;
-      color: var(--muted);
-      background: var(--paper-3);
-      border: 1px solid var(--rule);
-      padding: 3px 9px;
-      border-radius: 2px;
-    }
-    .confidence {
-      font-family: var(--mono);
-      font-size: 9px;
-      letter-spacing: 0.1em;
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .confidence-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-    }
-
-    /* ── Newsletter rows ─────────────────────────────────────── */
+    /* Newsletter rows */
     .newsletters { display: flex; flex-direction: column; gap: 10px; }
-
-    .nl-card {
-      border: 1px solid var(--rule);
-      background: var(--paper);
-      overflow: hidden;
-      transition: box-shadow 0.15s;
-    }
+    .nl-card { border: 1px solid var(--rule); background: var(--paper); overflow: hidden; transition: box-shadow 0.15s; }
     .nl-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
-
-    .nl-header {
-      padding: 18px 22px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      cursor: pointer;
-    }
-    .nl-dot {
-      width: 38px;
-      height: 38px;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--serif);
-      font-size: 16px;
-      font-weight: 700;
-      flex-shrink: 0;
-      color: #fff;
-    }
+    .nl-header { padding: 18px 22px; display: flex; align-items: center; gap: 16px; cursor: pointer; }
+    .nl-dot { width: 38px; height: 38px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 16px; font-weight: 700; flex-shrink: 0; color: #fff; }
     .nl-info { flex: 1; min-width: 0; }
-    .nl-sender {
-      font-size: 14.5px;
-      font-weight: 700;
-      color: var(--ink);
-      margin-bottom: 2px;
-    }
-    .nl-subject {
-      font-size: 12px;
-      color: var(--muted);
-      font-style: italic;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .nl-right {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 5px;
-      flex-shrink: 0;
-    }
-    .nl-time {
-      font-family: var(--mono);
-      font-size: 9.5px;
-      color: var(--muted);
-    }
-    .nl-category {
-      font-family: var(--mono);
-      font-size: 8.5px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
-      background: var(--paper-3);
-      border: 1px solid var(--rule);
-      padding: 2px 7px;
-      border-radius: 2px;
-      white-space: nowrap;
-    }
-    .nl-chevron {
-      color: var(--muted);
-      font-size: 11px;
-      margin-left: 8px;
-      transition: transform 0.2s;
-      flex-shrink: 0;
-    }
+    .nl-sender { font-size: 14.5px; font-weight: 700; margin-bottom: 2px; }
+    .nl-subject { font-size: 12px; color: var(--muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nl-right { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+    .nl-time { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+    .nl-category { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); background: var(--paper-3); border: 1px solid var(--rule); padding: 2px 7px; border-radius: 2px; white-space: nowrap; }
+    .nl-chevron { color: var(--muted); font-size: 11px; margin-left: 8px; transition: transform 0.2s; flex-shrink: 0; }
     .nl-card.expanded .nl-chevron { transform: rotate(180deg); }
-
-    .nl-body {
-      display: none;
-      padding: 0 22px 22px 76px;
-      border-top: 1px solid var(--rule-light);
-    }
+    .nl-body { display: none; padding: 0 22px 22px 76px; border-top: 1px solid var(--rule-light); }
     .nl-card.expanded .nl-body { display: block; }
 
     /* Takeaways */
     .takeaways-list { margin-top: 18px; margin-bottom: 22px; }
-    .takeaway {
-      display: flex;
-      gap: 12px;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--rule-light);
-      font-size: 13.5px;
-      line-height: 1.65;
-      color: #2A2520;
-    }
+    .takeaway { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule-light); font-size: 13.5px; line-height: 1.65; color: #2A2520; }
     .takeaway:last-child { border-bottom: none; }
     .takeaway-bullet { color: var(--accent); flex-shrink: 0; font-size: 8px; margin-top: 6px; }
 
     /* Articles */
-    .articles-label {
-      font-family: var(--mono);
-      font-size: 9px;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .articles-label::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: var(--rule-light);
-    }
-
-    .article-card {
-      border: 1px solid var(--rule-light);
-      background: var(--paper-2);
-      padding: 13px 15px;
-      margin-bottom: 8px;
-      cursor: pointer;
-      transition: background 0.12s;
-    }
+    .articles-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .articles-label::after { content: ''; flex: 1; height: 1px; background: var(--rule-light); }
+    .article-card { border: 1px solid var(--rule-light); background: var(--paper-2); padding: 13px 15px; margin-bottom: 8px; cursor: pointer; transition: background 0.12s; }
     .article-card:hover { background: var(--paper-3); }
-    .article-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-    }
-    .article-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--ink);
-      line-height: 1.4;
-    }
-    .article-read-time {
-      font-family: var(--mono);
-      font-size: 9px;
-      color: var(--muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-      margin-top: 2px;
-    }
-    .article-summary {
-      display: none;
-      font-size: 12.5px;
-      color: var(--muted);
-      line-height: 1.65;
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid var(--rule-light);
-    }
+    .article-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .article-title { font-size: 13px; font-weight: 700; line-height: 1.4; }
+    .article-summary { display: none; font-size: 12.5px; color: var(--muted); line-height: 1.65; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule-light); }
     .article-card.expanded .article-summary { display: block; }
-    .article-footer {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .article-badge {
-      font-family: var(--mono);
-      font-size: 8.5px;
-      color: var(--accent-2);
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .article-badge-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--accent-2);
-    }
-    .article-link {
-      font-family: var(--mono);
-      font-size: 8.5px;
-      color: var(--muted);
-      text-decoration: none;
-      margin-left: auto;
-    }
+    .article-footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .article-badge { font-family: var(--mono); font-size: 8.5px; color: var(--accent-2); display: flex; align-items: center; gap: 4px; }
+    .article-badge-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent-2); }
+    .article-link { font-family: var(--mono); font-size: 8.5px; color: var(--muted); text-decoration: none; margin-left: auto; }
     .article-link:hover { color: var(--accent); }
 
-    /* ── Sources view ────────────────────────────────────────── */
-    .sources-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    .source-card {
-      border: 1px solid var(--rule);
-      background: var(--paper);
-      padding: 20px;
-      display: flex;
-      gap: 14px;
-      align-items: flex-start;
-    }
-    .source-dot-lg {
-      width: 44px;
-      height: 44px;
-      border-radius: 5px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--serif);
-      font-size: 18px;
-      font-weight: 700;
-      color: #fff;
-      flex-shrink: 0;
-    }
+    /* Sources grid */
+    .sources-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .source-card { border: 1px solid var(--rule); background: var(--paper); padding: 20px; display: flex; gap: 14px; align-items: flex-start; }
+    .source-dot-lg { width: 44px; height: 44px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 18px; font-weight: 700; color: #fff; flex-shrink: 0; }
     .source-info { flex: 1; min-width: 0; }
-    .source-name {
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 3px;
-    }
-    .source-author {
-      font-size: 11px;
-      color: var(--muted);
-      font-style: italic;
-      margin-bottom: 8px;
-    }
-    .source-stats {
-      display: flex;
-      gap: 12px;
-    }
-    .source-stat {
-      font-family: var(--mono);
-      font-size: 9px;
-      color: var(--muted);
-      letter-spacing: 0.06em;
-    }
-    .source-stat strong {
-      font-family: var(--serif);
-      font-size: 14px;
-      color: var(--ink);
-      font-weight: 700;
-      display: block;
-      margin-bottom: 1px;
-    }
+    .source-name { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+    .source-author { font-size: 11px; color: var(--muted); font-style: italic; margin-bottom: 8px; }
+    .source-stats { display: flex; gap: 12px; }
+    .source-stat { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 0.06em; }
+    .source-stat strong { font-family: var(--serif); font-size: 14px; color: var(--ink); font-weight: 700; display: block; margin-bottom: 1px; }
 
-    /* ── Trends view ─────────────────────────────────────────── */
-    .trend-row {
-      border: 1px solid var(--rule);
-      background: var(--paper);
-      padding: 18px 22px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-    .trend-rank {
-      font-family: var(--serif);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--rule);
-      min-width: 32px;
-      line-height: 1;
-    }
+    /* Trends */
+    .trend-row { border: 1px solid var(--rule); background: var(--paper); padding: 18px 22px; margin-bottom: 10px; display: flex; align-items: center; gap: 20px; }
+    .trend-rank { font-family: var(--serif); font-size: 28px; font-weight: 700; color: var(--rule); min-width: 32px; line-height: 1; }
     .trend-info { flex: 1; }
-    .trend-topic {
-      font-size: 15px;
-      font-weight: 700;
-      margin-bottom: 8px;
-      line-height: 1.3;
-    }
+    .trend-topic { font-size: 15px; font-weight: 700; margin-bottom: 8px; line-height: 1.3; }
     .trend-sources { display: flex; gap: 6px; flex-wrap: wrap; }
     .trend-count { text-align: right; flex-shrink: 0; }
-    .trend-count strong {
-      font-family: var(--serif);
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--ink);
-      display: block;
-      line-height: 1;
-    }
-    .trend-count span {
-      font-family: var(--mono);
-      font-size: 9px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
+    .trend-count strong { font-family: var(--serif); font-size: 28px; font-weight: 700; display: block; line-height: 1; }
+    .trend-count span { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
 
-    /* ── Loading & empty states ──────────────────────────────── */
-    .loading {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 80px 20px;
-      gap: 16px;
-    }
-    .loading-spinner {
-      width: 28px;
-      height: 28px;
-      border: 2px solid var(--rule);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
+    /* Loading / empty / error */
+    .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; gap: 16px; }
+    .loading-spinner { width: 28px; height: 28px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .loading-text {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--muted);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
-    .empty {
-      text-align: center;
-      padding: 60px 20px;
-      border: 1px dashed var(--rule);
-    }
+    .loading-text { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .empty { text-align: center; padding: 60px 20px; border: 1px dashed var(--rule); }
     .empty-icon { font-size: 32px; margin-bottom: 12px; }
-    .empty-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 6px;
-    }
-    .empty-sub {
-      font-family: var(--mono);
-      font-size: 10.5px;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-
-    .error-bar {
-      background: #FDF0ED;
-      border: 1px solid #E8C0B4;
-      border-left: 3px solid var(--accent);
-      padding: 12px 20px;
-      margin-bottom: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .error-text {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--accent);
-    }
-    .error-retry {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--accent);
-      background: none;
-      border: 1px solid var(--accent);
-      padding: 4px 10px;
-      cursor: pointer;
-      border-radius: 2px;
-    }
+    .empty-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+    .empty-sub { font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.7; }
+    .error-bar { background: #FDF0ED; border: 1px solid #E8C0B4; border-left: 3px solid var(--accent); padding: 12px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .error-text { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+    .error-retry { font-family: var(--mono); font-size: 10px; color: var(--accent); background: none; border: 1px solid var(--accent); padding: 4px 10px; cursor: pointer; border-radius: 2px; }
     .error-retry:hover { background: var(--accent); color: #fff; }
 
-    /* ── Divider ─────────────────────────────────────────────── */
     .divider { height: 1px; background: var(--rule); margin: 40px 0; }
 
-    /* ── Animations ──────────────────────────────────────────── */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .fade-up {
-      animation: fadeUp 0.35s ease both;
-    }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.35s ease both; }
     .fade-up:nth-child(1) { animation-delay: 0.00s; }
     .fade-up:nth-child(2) { animation-delay: 0.06s; }
     .fade-up:nth-child(3) { animation-delay: 0.12s; }
@@ -655,12 +205,12 @@
       .masthead, .nav, .stats-bar, .main { padding-left: 20px; padding-right: 20px; }
       .sources-grid { grid-template-columns: 1fr; }
       .nl-body { padding-left: 20px; }
+      .nav-controls { gap: 8px; }
     }
   </style>
 </head>
 <body>
 
-<!-- ── Masthead ────────────────────────────────────────────── -->
 <header class="masthead">
   <div class="masthead-left">
     <div class="wordmark">Bri<em>ef</em>ly</div>
@@ -669,439 +219,376 @@
   <div class="masthead-date" id="masthead-date">Loading…</div>
 </header>
 
-<!-- ── Nav ────────────────────────────────────────────────── -->
 <nav class="nav">
   <div class="nav-tabs">
     <button class="nav-tab active" data-view="digest">Digest</button>
     <button class="nav-tab" data-view="sources">Sources</button>
     <button class="nav-tab" data-view="trends">Trends</button>
   </div>
-  <div class="date-nav">
-    <button class="date-btn" id="btn-prev" title="Previous day">←</button>
-    <div class="date-display" id="date-display">—</div>
-    <button class="date-btn" id="btn-next" title="Next day" disabled>→</button>
+  <div class="nav-controls">
+    <button class="pull-btn" id="pull-btn" title="Fetch new newsletters from Gmail and run AI pipeline">
+      <span class="pull-dot" id="pull-dot"></span>
+      <span id="pull-label">Pull Now</span>
+    </button>
+    <div class="date-nav">
+      <button class="date-btn" id="btn-prev">←</button>
+      <div class="date-display" id="date-display">—</div>
+      <button class="date-btn" id="btn-next" disabled>→</button>
+    </div>
   </div>
 </nav>
 
-<!-- ── Stats bar ───────────────────────────────────────────── -->
-<div class="stats-bar">
-  <div class="stat">
-    <span class="stat-value" id="stat-newsletters">—</span>
-    <span class="stat-label">Newsletters</span>
-  </div>
-  <div class="stat-divider"></div>
-  <div class="stat">
-    <span class="stat-value" id="stat-articles">—</span>
-    <span class="stat-label">Articles Extracted</span>
-  </div>
-  <div class="stat-divider"></div>
-  <div class="stat">
-    <span class="stat-value" id="stat-themes">—</span>
-    <span class="stat-label">Cross-Source Themes</span>
-  </div>
-  <div class="stat-divider"></div>
-  <div class="stat">
-    <span class="stat-value" id="stat-takeaways">—</span>
-    <span class="stat-label">Key Takeaways</span>
+<!-- Pipeline progress drawer -->
+<div class="pipeline-drawer" id="pipeline-drawer">
+  <div class="pipeline-inner">
+    <div class="pipeline-header">
+      <div class="pipeline-title">
+        <span id="drawer-spinner" style="display:none">⏳</span>
+        <span id="drawer-title">Pipeline Log</span>
+      </div>
+      <button class="pipeline-close" id="drawer-close">✕</button>
+    </div>
+    <div class="pipeline-log" id="pipeline-log"></div>
+    <div class="pipeline-result" id="pipeline-result" style="display:none"></div>
   </div>
 </div>
 
-<!-- ── Main ────────────────────────────────────────────────── -->
+<div class="stats-bar">
+  <div class="stat"><span class="stat-value" id="stat-newsletters">—</span><span class="stat-label">Newsletters</span></div>
+  <div class="stat-divider"></div>
+  <div class="stat"><span class="stat-value" id="stat-articles">—</span><span class="stat-label">Articles Extracted</span></div>
+  <div class="stat-divider"></div>
+  <div class="stat"><span class="stat-value" id="stat-themes">—</span><span class="stat-label">Cross-Source Themes</span></div>
+  <div class="stat-divider"></div>
+  <div class="stat"><span class="stat-value" id="stat-takeaways">—</span><span class="stat-label">Key Takeaways</span></div>
+</div>
+
 <main class="main" id="main-content">
-  <div class="loading" id="initial-loading">
+  <div class="loading">
     <div class="loading-spinner"></div>
     <div class="loading-text">Fetching digest…</div>
   </div>
 </main>
 
 <script>
-/* ── State ──────────────────────────────────────────────────── */
+/* ── Constants & state ─────────────────────────────────── */
 const TODAY = new Date().toISOString().slice(0, 10);
 let state = {
-  currentDate: TODAY,
-  view: 'digest',
-  digest: null,
-  loading: false,
-  error: null,
-  expandedTheme: null,
-  expandedNl: null,
-  expandedArticle: null,
+  currentDate: TODAY, view: 'digest',
+  digest: null, loading: false, error: null,
+  expandedTheme: null, expandedNl: null, expandedArticle: null,
+  pullRunning: false, pollInterval: null,
 };
 
-/* ── Palette for sender dots ─────────────────────────────────── */
-const PALETTE = [
-  '#2B5C3F','#B5491C','#1E3D6B','#7B4F9E',
-  '#5C7A2B','#9E4F4F','#2B6B7B','#B58C1C',
-];
-const senderColor = (email) => {
-  let h = 0;
-  for (let i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) >>> 0;
-  return PALETTE[h % PALETTE.length];
-};
-const initials = (name) => (name || '?').charAt(0).toUpperCase();
+const PALETTE = ['#2B5C3F','#B5491C','#1E3D6B','#7B4F9E','#5C7A2B','#9E4F4F','#2B6B7B','#B58C1C'];
+const senderColor = e => { let h=0; for(let i=0;i<e.length;i++) h=(h*31+e.charCodeAt(i))>>>0; return PALETTE[h%PALETTE.length]; };
+const initials = n => (n||'?').charAt(0).toUpperCase();
+const CONF_COLOR = { HIGH:'#2B5C3F', MEDIUM:'#B58C1C', LOW:'#9E4F4F' };
+const confColor = c => CONF_COLOR[(c||'').split(' ')[0].toUpperCase()] || '#999';
+const offsetDate = (d,days) => { const dt=new Date(d+'T12:00:00'); dt.setDate(dt.getDate()+days); return dt.toISOString().slice(0,10); };
+const fmtDate = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+const fmtTime = iso => { try { return new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}); } catch { return ''; }};
+function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-/* ── Confidence display ─────────────────────────────────────── */
-const CONF_COLOR = { HIGH: '#2B5C3F', MEDIUM: '#B58C1C', LOW: '#9E4F4F' };
-const confColor = (c) => CONF_COLOR[(c||'').split(' ')[0].toUpperCase()] || '#999';
-
-/* ── Date helpers ────────────────────────────────────────────── */
-const offsetDate = (d, days) => {
-  const dt = new Date(d + 'T12:00:00');
-  dt.setDate(dt.getDate() + days);
-  return dt.toISOString().slice(0, 10);
-};
-const fmtDate = (d) => {
-  const dt = new Date(d + 'T12:00:00');
-  return dt.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-};
-const fmtTime = (iso) => {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
-  } catch { return ''; }
-};
-
-/* ── API ──────────────────────────────────────────────────────── */
+/* ── API helpers ───────────────────────────────────────── */
 async function fetchDigest(date) {
-  const res = await fetch(`/api/digest/${date}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const r = await fetch(`/api/digest/${date}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+async function triggerPull() {
+  const r = await fetch('/api/pull', { method: 'POST' });
+  if (r.status === 409) throw new Error('Pipeline already running');
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+async function fetchPullStatus() {
+  const r = await fetch('/api/pull/status');
+  return r.json();
 }
 
-/* ── Load ─────────────────────────────────────────────────────── */
+/* ── Load digest ───────────────────────────────────────── */
 async function load(date) {
-  state.loading = true;
-  state.error = null;
-  state.expandedTheme = null;
-  state.expandedNl = null;
-  state.expandedArticle = null;
+  state.loading = true; state.error = null;
+  state.expandedTheme = null; state.expandedNl = null; state.expandedArticle = null;
   render();
-
   try {
-    const digest = await fetchDigest(date);
-    state.digest = digest;
+    state.digest = await fetchDigest(date);
     state.currentDate = date;
-    state.error = null;
-  } catch (e) {
-    state.error = e.message || 'Could not load digest';
-  } finally {
-    state.loading = false;
-    render();
-  }
+  } catch(e) { state.error = e.message; }
+  finally { state.loading = false; render(); }
 }
 
-/* ── Render ───────────────────────────────────────────────────── */
-function render() {
-  const el = (id) => document.getElementById(id);
+/* ── Pull Now flow ─────────────────────────────────────── */
+const drawer     = document.getElementById('pipeline-drawer');
+const drawerLog  = document.getElementById('pipeline-log');
+const drawerRes  = document.getElementById('pipeline-result');
+const drawerTitle= document.getElementById('drawer-title');
+const drawerSpinner=document.getElementById('drawer-spinner');
+const pullBtn    = document.getElementById('pull-btn');
+const pullDot    = document.getElementById('pull-dot');
+const pullLabel  = document.getElementById('pull-label');
 
-  // Masthead date
+function openDrawer() { drawer.classList.add('open'); }
+function closeDrawer() { drawer.classList.remove('open'); }
+
+function setPullRunning(running) {
+  state.pullRunning = running;
+  pullBtn.disabled = running;
+  pullBtn.classList.toggle('running', running);
+  pullDot.classList.toggle('spinning', running);
+  pullLabel.textContent = running ? 'Running…' : 'Pull Now';
+}
+
+function colorLog(line) {
+  if (/✅|ingested|stored|complete/i.test(line)) return `<span class="log-ok">${esc(line)}</span>`;
+  if (/❌|error|failed/i.test(line))             return `<span class="log-err">${esc(line)}</span>`;
+  if (/={3,}|pipeline|briefly/i.test(line))      return `<span class="log-head">${esc(line)}</span>`;
+  return esc(line);
+}
+
+function updateDrawerLog(lines) {
+  drawerLog.innerHTML = lines.map(colorLog).join('<br>');
+  drawerLog.scrollTop = drawerLog.scrollHeight;
+}
+
+function showDrawerResult(result) {
+  if (!result) return;
+  drawerRes.style.display = 'flex';
+  drawerRes.innerHTML = [
+    { label: 'Fetched', val: result.fetched ?? '—' },
+    { label: 'Ingested', val: result.ingested ?? '—' },
+    { label: 'Processed', val: result.newsletters_processed ?? '—' },
+    { label: 'Themes', val: result.themes?.length ?? '—' },
+  ].map(s => `<div class="pipeline-stat"><strong>${s.val}</strong>${s.label}</div>`).join('');
+}
+
+async function startPollingPipelineStatus() {
+  if (state.pollInterval) clearInterval(state.pollInterval);
+  state.pollInterval = setInterval(async () => {
+    try {
+      const status = await fetchPullStatus();
+      updateDrawerLog(status.log || []);
+      if (!status.running) {
+        clearInterval(state.pollInterval);
+        state.pollInterval = null;
+        setPullRunning(false);
+        drawerSpinner.style.display = 'none';
+        if (status.error) {
+          drawerTitle.textContent = '❌ Pipeline failed';
+          drawerLog.innerHTML += `<br><span class="log-err">Error: ${esc(status.error)}</span>`;
+        } else {
+          drawerTitle.textContent = '✅ Pipeline complete';
+          showDrawerResult(status.result);
+        }
+        // Refresh the digest to show new results
+        await load(state.currentDate);
+      }
+    } catch(e) { /* ignore transient poll errors */ }
+  }, 1500);
+}
+
+document.getElementById('pull-btn').addEventListener('click', async () => {
+  if (state.pullRunning) return;
+  try {
+    drawerLog.innerHTML = '';
+    drawerRes.style.display = 'none';
+    drawerTitle.textContent = 'Pipeline running…';
+    drawerSpinner.style.display = 'inline';
+    openDrawer();
+    setPullRunning(true);
+    await triggerPull();
+    await startPollingPipelineStatus();
+  } catch(e) {
+    setPullRunning(false);
+    drawerSpinner.style.display = 'none';
+    drawerTitle.textContent = '❌ Could not start pipeline';
+    drawerLog.innerHTML = `<span class="log-err">${esc(e.message)}</span>`;
+  }
+});
+
+document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+
+/* ── Render ────────────────────────────────────────────── */
+function render() {
+  const el = id => document.getElementById(id);
   el('masthead-date').textContent = fmtDate(state.currentDate);
-  el('date-display').textContent = state.currentDate;
+  el('date-display').textContent  = state.currentDate;
   el('btn-prev').disabled = state.loading;
   el('btn-next').disabled = state.loading || state.currentDate >= TODAY;
 
-  // Stats
   const d = state.digest;
-  const newsletters = d ? d.newsletters : [];
-  const themes = d ? d.themes : [];
-  const articles = newsletters.flatMap(n => n.articles || []);
-  const takeaways = newsletters.flatMap(n => n.takeaways || []);
-
+  const newsletters = d?.newsletters ?? [];
+  const themes      = d?.themes ?? [];
+  const articles    = newsletters.flatMap(n => n.articles ?? []);
+  const takeaways   = newsletters.flatMap(n => n.takeaways ?? []);
   el('stat-newsletters').textContent = newsletters.length || '—';
-  el('stat-articles').textContent = articles.length || '—';
-  el('stat-themes').textContent = themes.length || '—';
-  el('stat-takeaways').textContent = takeaways.length || '—';
+  el('stat-articles').textContent    = articles.length    || '—';
+  el('stat-themes').textContent      = themes.length      || '—';
+  el('stat-takeaways').textContent   = takeaways.length   || '—';
 
-  // Main content
   const main = el('main-content');
+  if (state.loading) { main.innerHTML = `<div class="loading"><div class="loading-spinner"></div><div class="loading-text">Fetching digest…</div></div>`; return; }
 
-  if (state.loading) {
-    main.innerHTML = `
-      <div class="loading">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Fetching digest…</div>
-      </div>`;
-    return;
-  }
-
-  let html = '';
-
-  if (state.error) {
-    html += `
-      <div class="error-bar">
-        <span class="error-text">⚠ ${state.error}</span>
-        <button class="error-retry" onclick="load('${state.currentDate}')">Retry</button>
-      </div>`;
-  }
-
-  if (state.view === 'digest') html += renderDigest(newsletters, themes);
-  else if (state.view === 'sources') html += renderSources(newsletters);
-  else if (state.view === 'trends') html += renderTrends(newsletters, themes);
-
-  main.innerHTML = html;
+  let h = '';
+  if (state.error) h += `<div class="error-bar"><span class="error-text">⚠ ${esc(state.error)}</span><button class="error-retry" onclick="load('${state.currentDate}')">Retry</button></div>`;
+  if (state.view === 'digest')    h += renderDigest(newsletters, themes);
+  else if (state.view === 'sources') h += renderSources(newsletters);
+  else if (state.view === 'trends')  h += renderTrends(newsletters, themes);
+  main.innerHTML = h;
   attachHandlers();
 }
 
-/* ── View: Digest ─────────────────────────────────────────────── */
+/* ── Digest view ───────────────────────────────────────── */
 function renderDigest(newsletters, themes) {
-  let h = '';
-
-  // Themes
-  h += `<div class="themes">`;
-  h += `<div class="section-label">Intelligence Synthesis · ${themes.length} theme${themes.length !== 1 ? 's' : ''} identified</div>`;
-
-  if (themes.length === 0) {
-    h += `<div class="empty">
-      <div class="empty-icon">🔬</div>
-      <div class="empty-title">No synthesis yet</div>
-      <div class="empty-sub">Run <code>python run.py</code> to process today's newsletters<br>and generate cross-newsletter themes.</div>
-    </div>`;
+  let h = `<div class="themes"><div class="section-label">Intelligence Synthesis · ${themes.length} theme${themes.length!==1?'s':''} identified</div>`;
+  if (!themes.length) {
+    h += `<div class="empty"><div class="empty-icon">🔬</div><div class="empty-title">No synthesis yet</div><div class="empty-sub">Press <strong>Pull Now</strong> to fetch newsletters and generate themes,<br>or run <code>python run.py</code> directly.</div></div>`;
   } else {
-    themes.forEach((t, i) => {
+    themes.forEach(t => {
       const open = state.expandedTheme === t.id;
-      const sources = JSON.parse(t.source_ids || '[]');
-      const srcNames = newsletters
-        .filter(n => sources.includes(n.id))
-        .map(n => n.sender_name);
+      const sources = JSON.parse(t.source_ids||'[]');
+      const srcNames = newsletters.filter(n=>sources.includes(n.id)).map(n=>n.sender_name);
       const cc = confColor(t.confidence);
-      const confLabel = (t.confidence || 'MEDIUM').split('(')[0].trim().split(' ')[0];
-      h += `
-        <div class="theme-card fade-up ${open ? 'expanded' : ''}" data-theme-id="${t.id}">
-          <div class="theme-header">
-            <div class="theme-header-text">
-              <div class="theme-tag">${esc(t.tag)}</div>
-              <div class="theme-title">${esc(t.title)}</div>
-            </div>
-            <div class="theme-chevron">▼</div>
+      const confLabel = (t.confidence||'MEDIUM').split('(')[0].trim().split(' ')[0];
+      h += `<div class="theme-card fade-up ${open?'expanded':''}" data-theme-id="${t.id}">
+        <div class="theme-header"><div class="theme-header-text"><div class="theme-tag">${esc(t.tag)}</div><div class="theme-title">${esc(t.title)}</div></div><div class="theme-chevron">▼</div></div>
+        <div class="theme-body"><div class="theme-summary">${esc(t.summary)}</div>
+          <div class="theme-meta">${srcNames.map(s=>`<span class="source-chip">${esc(s)}</span>`).join('')}
+            <div class="confidence" style="margin-left:auto"><span class="confidence-dot" style="background:${cc}"></span><span style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em">${confLabel}</span></div>
           </div>
-          <div class="theme-body">
-            <div class="theme-summary">${esc(t.summary)}</div>
-            <div class="theme-meta">
-              ${srcNames.map(s => `<span class="source-chip">${esc(s)}</span>`).join('')}
-              <div class="confidence" style="margin-left:auto">
-                <span class="confidence-dot" style="background:${cc}"></span>
-                <span style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em">${confLabel}</span>
-              </div>
-            </div>
-          </div>
-        </div>`;
+        </div></div>`;
     });
   }
-  h += `</div>`;
-
-  h += `<div class="divider"></div>`;
-
-  // Per-newsletter
-  h += `<div class="section-label">Per-Newsletter Summaries · ${newsletters.length} received</div>`;
-
-  if (newsletters.length === 0) {
-    h += `<div class="empty">
-      <div class="empty-icon">📭</div>
-      <div class="empty-title">No newsletters today</div>
-      <div class="empty-sub">Forward newsletters to your SendGrid address<br>or use <code>POST /test/ingest</code> to inject a test.</div>
-    </div>`;
+  h += `</div><div class="divider"></div><div class="section-label">Per-Newsletter Summaries · ${newsletters.length} received</div>`;
+  if (!newsletters.length) {
+    h += `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">No newsletters today</div><div class="empty-sub">Press <strong>Pull Now</strong> to fetch from Gmail,<br>or forward newsletters to your digest address.</div></div>`;
   } else {
     h += `<div class="newsletters">`;
-    newsletters.forEach((n, i) => {
+    newsletters.forEach(n => {
       const open = state.expandedNl === n.id;
       const color = senderColor(n.sender_email);
-      const takeaways = n.takeaways || [];
-      const articles = n.articles || [];
-      h += `
-        <div class="nl-card fade-up ${open ? 'expanded' : ''}" data-nl-id="${n.id}">
-          <div class="nl-header">
-            <div class="nl-dot" style="background:${color}">${initials(n.sender_name)}</div>
-            <div class="nl-info">
-              <div class="nl-sender">${esc(n.sender_name)}</div>
-              <div class="nl-subject">"${esc(n.subject)}"</div>
-            </div>
-            <div class="nl-right">
-              <span class="nl-time">${fmtTime(n.received_at)}</span>
-              ${n.processed
-                ? `<span class="nl-category">${esc(n.category || 'Processed')}</span>`
-                : `<span class="nl-category" style="color:#B58C1C;border-color:#B58C1C">Pending</span>`
-              }
-            </div>
-            <div class="nl-chevron">▼</div>
-          </div>
-          <div class="nl-body">
-            ${takeaways.length === 0
-              ? `<p style="font-family:var(--mono);font-size:10px;color:var(--muted);padding:16px 0">No takeaways extracted yet — run the pipeline to process.</p>`
-              : `<div class="takeaways-list">${takeaways.map(t =>
-                  `<div class="takeaway"><span class="takeaway-bullet">◆</span><span>${esc(t.content)}</span></div>`
-                ).join('')}</div>`
-            }
-            ${articles.length > 0 ? `
-              <div class="articles-label">Linked articles · extracted &amp; summarised</div>
-              ${articles.map(a => {
-                const akey = `${n.id}-${a.id}`;
-                const aopen = state.expandedArticle === akey;
-                return `
-                  <div class="article-card ${aopen ? 'expanded' : ''}" data-article-key="${akey}">
-                    <div class="article-row">
-                      <div class="article-title">${esc(a.title || a.url)}</div>
-                    </div>
-                    <div class="article-summary">${esc(a.summary)}</div>
-                    <div class="article-footer">
-                      <div class="article-badge">
-                        <span class="article-badge-dot"></span>
-                        ${a.fetch_status === 'ok' ? 'Extracted & analysed' : esc(a.fetch_status)}
-                      </div>
-                      <a class="article-link" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗ original</a>
-                    </div>
-                  </div>`;
-              }).join('')}
-            ` : ''}
-          </div>
-        </div>`;
+      const takeaways = n.takeaways||[], articles = n.articles||[];
+      h += `<div class="nl-card fade-up ${open?'expanded':''}" data-nl-id="${n.id}">
+        <div class="nl-header">
+          <div class="nl-dot" style="background:${color}">${initials(n.sender_name)}</div>
+          <div class="nl-info"><div class="nl-sender">${esc(n.sender_name)}</div><div class="nl-subject">"${esc(n.subject)}"</div></div>
+          <div class="nl-right"><span class="nl-time">${fmtTime(n.received_at)}</span>
+            ${n.processed?`<span class="nl-category">${esc(n.category||'Processed')}</span>`:`<span class="nl-category" style="color:#B58C1C;border-color:#B58C1C">Pending</span>`}
+          </div><div class="nl-chevron">▼</div>
+        </div>
+        <div class="nl-body">
+          ${!takeaways.length
+            ? `<p style="font-family:var(--mono);font-size:10px;color:var(--muted);padding:16px 0">No takeaways yet — press Pull Now to process.</p>`
+            : `<div class="takeaways-list">${takeaways.map(t=>`<div class="takeaway"><span class="takeaway-bullet">◆</span><span>${esc(t.content)}</span></div>`).join('')}</div>`
+          }
+          ${articles.length ? `<div class="articles-label">Linked articles · extracted &amp; summarised</div>
+            ${articles.map(a=>{
+              const akey=`${n.id}-${a.id}`, aopen=state.expandedArticle===akey;
+              return `<div class="article-card ${aopen?'expanded':''}" data-article-key="${akey}">
+                <div class="article-row"><div class="article-title">${esc(a.title||a.url)}</div></div>
+                <div class="article-summary">${esc(a.summary)}</div>
+                <div class="article-footer">
+                  <div class="article-badge"><span class="article-badge-dot"></span>${a.fetch_status==='ok'?'Extracted &amp; analysed':esc(a.fetch_status)}</div>
+                  <a class="article-link" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗ original</a>
+                </div></div>`;
+            }).join('')}` : ''}
+        </div></div>`;
     });
     h += `</div>`;
   }
-
   return h;
 }
 
-/* ── View: Sources ────────────────────────────────────────────── */
+/* ── Sources view ──────────────────────────────────────── */
 function renderSources(newsletters) {
   let h = `<div class="section-label">Active Sources · ${newsletters.length} today</div>`;
-
-  if (newsletters.length === 0) {
-    h += `<div class="empty"><div class="empty-icon">📡</div>
-      <div class="empty-title">No sources yet</div>
-      <div class="empty-sub">Forward newsletters to start building your source list.</div></div>`;
-    return h;
-  }
-
+  if (!newsletters.length) { return h + `<div class="empty"><div class="empty-icon">📡</div><div class="empty-title">No sources yet</div><div class="empty-sub">Press Pull Now to fetch newsletters from Gmail.</div></div>`; }
   h += `<div class="sources-grid">`;
   newsletters.forEach(n => {
     const color = senderColor(n.sender_email);
-    const takeaways = (n.takeaways || []).length;
-    const articles = (n.articles || []).length;
-    h += `
-      <div class="source-card">
-        <div class="source-dot-lg" style="background:${color}">${initials(n.sender_name)}</div>
-        <div class="source-info">
-          <div class="source-name">${esc(n.sender_name)}</div>
-          <div class="source-author">${esc(n.sender_email)}</div>
-          <div class="source-stats">
-            <div class="source-stat"><strong>${takeaways}</strong>Takeaways</div>
-            <div class="source-stat"><strong>${articles}</strong>Articles</div>
-            <div class="source-stat" style="margin-left:auto">
-              <strong style="font-size:11px;font-weight:400;font-style:italic;color:${n.processed ? 'var(--accent-2)' : 'var(--muted)'}">
-                ${n.processed ? '✓ processed' : '○ pending'}
-              </strong>
-            </div>
-          </div>
+    h += `<div class="source-card">
+      <div class="source-dot-lg" style="background:${color}">${initials(n.sender_name)}</div>
+      <div class="source-info">
+        <div class="source-name">${esc(n.sender_name)}</div>
+        <div class="source-author">${esc(n.sender_email)}</div>
+        <div class="source-stats">
+          <div class="source-stat"><strong>${(n.takeaways||[]).length}</strong>Takeaways</div>
+          <div class="source-stat"><strong>${(n.articles||[]).length}</strong>Articles</div>
+          <div class="source-stat" style="margin-left:auto"><strong style="font-size:11px;font-weight:400;font-style:italic;color:${n.processed?'var(--accent-2)':'var(--muted)'}">${n.processed?'✓ processed':'○ pending'}</strong></div>
         </div>
-      </div>`;
+      </div></div>`;
   });
-  h += `</div>`;
-  return h;
+  return h + `</div>`;
 }
 
-/* ── View: Trends ─────────────────────────────────────────────── */
+/* ── Trends view ───────────────────────────────────────── */
 function renderTrends(newsletters, themes) {
-  let h = `<div class="section-label">Recurring Signals · today's themes</div>`;
-
-  if (themes.length === 0) {
-    h += `<div class="empty">
-      <div class="empty-icon">📈</div>
-      <div class="empty-title">No trend data yet</div>
-      <div class="empty-sub">Trends will appear once synthesis has run across<br>multiple newsletters. Check back after running <code>python run.py</code>.</div>
-    </div>`;
-    return h;
-  }
-
-  const CONF_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-  const sorted = [...themes].sort((a, b) => {
-    const ca = (a.confidence || '').split(' ')[0].toUpperCase();
-    const cb = (b.confidence || '').split(' ')[0].toUpperCase();
-    return (CONF_ORDER[ca] ?? 3) - (CONF_ORDER[cb] ?? 3);
-  });
-
-  sorted.forEach((t, i) => {
-    const sources = JSON.parse(t.source_ids || '[]');
-    const srcNames = newsletters.filter(n => sources.includes(n.id)).map(n => n.sender_name);
+  let h = `<div class="section-label">Signals · today's themes ranked by confidence</div>`;
+  if (!themes.length) { return h + `<div class="empty"><div class="empty-icon">📈</div><div class="empty-title">No trend data yet</div><div class="empty-sub">Trends appear after synthesis runs across multiple newsletters.</div></div>`; }
+  const CONF_ORDER = {HIGH:0,MEDIUM:1,LOW:2};
+  [...themes].sort((a,b) => {
+    const ca=(a.confidence||'').split(' ')[0].toUpperCase(), cb=(b.confidence||'').split(' ')[0].toUpperCase();
+    return (CONF_ORDER[ca]??3)-(CONF_ORDER[cb]??3);
+  }).forEach((t,i) => {
+    const sources = JSON.parse(t.source_ids||'[]');
+    const srcNames = newsletters.filter(n=>sources.includes(n.id)).map(n=>n.sender_name);
     const cc = confColor(t.confidence);
-    h += `
-      <div class="trend-row fade-up">
-        <div class="trend-rank" style="color:${cc}">${i + 1}</div>
-        <div class="trend-info">
-          <div class="trend-topic">${esc(t.title)}</div>
-          <div class="trend-sources">
-            ${srcNames.map(s => `<span class="source-chip">${esc(s)}</span>`).join('')}
-          </div>
-        </div>
-        <div class="trend-count">
-          <strong style="color:${cc}">${srcNames.length}</strong>
-          <span>source${srcNames.length !== 1 ? 's' : ''}</span>
-        </div>
-      </div>`;
+    h += `<div class="trend-row fade-up">
+      <div class="trend-rank" style="color:${cc}">${i+1}</div>
+      <div class="trend-info"><div class="trend-topic">${esc(t.title)}</div><div class="trend-sources">${srcNames.map(s=>`<span class="source-chip">${esc(s)}</span>`).join('')}</div></div>
+      <div class="trend-count"><strong style="color:${cc}">${srcNames.length}</strong><span>source${srcNames.length!==1?'s':''}</span></div>
+    </div>`;
   });
-
   return h;
 }
 
-/* ── Event wiring ─────────────────────────────────────────────── */
+/* ── Event wiring ──────────────────────────────────────── */
 function attachHandlers() {
-  // Theme expand/collapse
-  document.querySelectorAll('.theme-card').forEach(el => {
-    el.addEventListener('click', () => {
-      const id = parseInt(el.dataset.themeId);
-      state.expandedTheme = state.expandedTheme === id ? null : id;
-      render();
-    });
-  });
-
-  // Newsletter expand/collapse
-  document.querySelectorAll('.nl-header').forEach(el => {
-    el.addEventListener('click', () => {
-      const card = el.closest('.nl-card');
-      const id = parseInt(card.dataset.nlId);
-      state.expandedNl = state.expandedNl === id ? null : id;
-      render();
-    });
-  });
-
-  // Article expand/collapse
-  document.querySelectorAll('.article-card').forEach(el => {
-    el.addEventListener('click', () => {
-      const key = el.dataset.articleKey;
-      state.expandedArticle = state.expandedArticle === key ? null : key;
-      render();
-    });
-  });
-}
-
-/* ── Global UI events ─────────────────────────────────────────── */
-document.querySelectorAll('.nav-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.view = btn.dataset.view;
+  document.querySelectorAll('.theme-card').forEach(el => el.addEventListener('click', () => {
+    const id = parseInt(el.dataset.themeId);
+    state.expandedTheme = state.expandedTheme === id ? null : id;
     render();
-  });
-});
-
-document.getElementById('btn-prev').addEventListener('click', () => {
-  if (!state.loading) load(offsetDate(state.currentDate, -1));
-});
-document.getElementById('btn-next').addEventListener('click', () => {
-  if (!state.loading && state.currentDate < TODAY) load(offsetDate(state.currentDate, 1));
-});
-
-/* ── Escape helper ────────────────────────────────────────────── */
-function esc(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  }));
+  document.querySelectorAll('.nl-header').forEach(el => el.addEventListener('click', () => {
+    const id = parseInt(el.closest('.nl-card').dataset.nlId);
+    state.expandedNl = state.expandedNl === id ? null : id;
+    render();
+  }));
+  document.querySelectorAll('.article-card').forEach(el => el.addEventListener('click', () => {
+    const key = el.dataset.articleKey;
+    state.expandedArticle = state.expandedArticle === key ? null : key;
+    render();
+  }));
 }
 
-/* ── Boot ─────────────────────────────────────────────────────── */
+document.querySelectorAll('.nav-tab').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  state.view = btn.dataset.view;
+  render();
+}));
+document.getElementById('btn-prev').addEventListener('click', () => { if (!state.loading) load(offsetDate(state.currentDate, -1)); });
+document.getElementById('btn-next').addEventListener('click', () => { if (!state.loading && state.currentDate < TODAY) load(offsetDate(state.currentDate, 1)); });
+
+/* ── Check if pipeline was already running on page load ── */
+async function checkRunningJob() {
+  try {
+    const status = await fetchPullStatus();
+    if (status.running) {
+      openDrawer();
+      setPullRunning(true);
+      drawerTitle.textContent = 'Pipeline running…';
+      drawerSpinner.style.display = 'inline';
+      updateDrawerLog(status.log || []);
+      await startPollingPipelineStatus();
+    }
+  } catch(e) { /* ignore */ }
+}
+
+/* ── Boot ──────────────────────────────────────────────── */
 load(TODAY);
+checkRunningJob();
 </script>
 </body>
 </html>

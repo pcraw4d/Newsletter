@@ -1,15 +1,15 @@
-# Briefly — Python dependencies
-
-# Web server
 flask>=3.0
 gunicorn>=21.2
-
-# Email + HTML parsing
 beautifulsoup4>=4.12
 requests>=2.31
-
-# LLM client — OpenAI-compatible, works with Groq, Together, OpenRouter
-openai>=1.30
-
-# Config
 python-dotenv>=1.0
+
+# AI — Gemini via OpenAI-compatible endpoint
+openai>=1.30
+google-generativeai>=0.8     # used for auth utilities (not direct calls)
+
+# Gmail API
+google-auth>=2.29
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2
+google-api-python-client>=2.125

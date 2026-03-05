@@ -2,19 +2,23 @@
 server.py — Flask web server for Briefly.
 
 Endpoints:
-  POST /inbound              ← SendGrid webhook (receives forwarded newsletters)
-  POST /test/ingest          ← inject a fake email for local testing
-  GET  /api/digest           ← today's full digest (used by the dashboard)
-  GET  /api/digest/<date>    ← digest for a specific YYYY-MM-DD
+  GET  /                     ← dashboard SPA
+  GET  /api/digest           ← today's full digest
+  GET  /api/digest/<date>    ← digest for YYYY-MM-DD
   GET  /api/status           ← health check + queue depth
+  GET  /api/pull/status      ← is a pipeline run in progress?
+  POST /api/pull             ← trigger Gmail poll + AI pipeline (UI button)
   GET  /api/newsletters/today
+  POST /test/ingest          ← inject a fake email (dev only)
 """
 
 import os
 import hmac
-from datetime import date
+import threading
+import time
+from datetime import date, datetime
 
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify, abort, send_from_directory
 from dotenv import load_dotenv
 
 from database import (
@@ -28,11 +32,28 @@ from email_parser import parse_raw_email
 
 load_dotenv()
 
-app = Flask(__name__, static_folder="static", static_url_path="")
+app = Flask(__name__)
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 # ---------------------------------------------------------------------------
-# CORS — allows the React dashboard (on a different port locally) to call the API
+# Pipeline job state
+# Track whether a pipeline run is active so the UI can show progress
+# and prevent double-triggers.
+# ---------------------------------------------------------------------------
+
+_job = {
+    "running":    False,
+    "started_at": None,
+    "finished_at": None,
+    "result":     None,   # summary dict from run_pipeline
+    "error":      None,
+    "log":        [],     # captured print output
+}
+_job_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# CORS
 # ---------------------------------------------------------------------------
 
 @app.after_request
@@ -43,178 +64,190 @@ def add_cors(response):
     return response
 
 @app.route("/api/<path:path>", methods=["OPTIONS"])
-@app.route("/inbound", methods=["OPTIONS"])
 def options_handler(path=""):
     return "", 204
 
 
 # ---------------------------------------------------------------------------
-# Dashboard — serve index.html at root
+# Dashboard
 # ---------------------------------------------------------------------------
 
 @app.get("/")
 def dashboard():
-    """Serve the dashboard SPA."""
-    from flask import send_from_directory
-    return send_from_directory(app.static_folder, "index.html")
-
+    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
 
 
 # ---------------------------------------------------------------------------
-# Auth
+# Pipeline trigger — runs Gmail poll + AI pipeline in a background thread
 # ---------------------------------------------------------------------------
 
-def _verify_secret(provided: str) -> bool:
-    if not WEBHOOK_SECRET:
-        return True   # dev mode — no secret configured
-    return hmac.compare_digest(provided or "", WEBHOOK_SECRET)
+def _run_pipeline_job():
+    """Worker function executed in a background thread by POST /api/pull."""
+    import io
+    import sys
 
+    # Capture stdout so the log is available via /api/pull/status
+    log_lines = []
 
-# ---------------------------------------------------------------------------
-# Inbound email webhook (SendGrid Inbound Parse)
-#
-# SendGrid sends multipart/form-data with a field called 'email' containing
-# the full raw MIME message. Our parser handles this format natively.
-# ---------------------------------------------------------------------------
+    class _Capture:
+        def write(self, msg):
+            if msg.strip():
+                log_lines.append(msg.rstrip())
+            sys.__stdout__.write(msg)
+        def flush(self):
+            sys.__stdout__.flush()
 
-@app.post("/inbound")
-def inbound_email():
-    if not _verify_secret(request.headers.get("X-Briefly-Secret", "")):
-        abort(403, "Invalid webhook secret")
-
-    raw_bytes = None
-    content_type = request.content_type or ""
-
-    if "message/rfc822" in content_type:
-        raw_bytes = request.get_data()
-    elif "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
-        # SendGrid default format
-        raw_mime = request.form.get("email") or request.form.get("body-mime") or ""
-        if raw_mime:
-            raw_bytes = raw_mime.encode("utf-8")
-    elif "application/json" in content_type:
-        data = request.get_json(silent=True) or {}
-        raw_mime = data.get("body-mime") or data.get("raw") or ""
-        if raw_mime:
-            raw_bytes = raw_mime.encode("utf-8")
-
-    if not raw_bytes:
-        return jsonify({"error": "Could not extract email body"}), 400
+    sys.stdout = _Capture()
 
     try:
-        parsed = parse_raw_email(raw_bytes)
-    except Exception as exc:
-        app.logger.error(f"[inbound] Parse error: {exc}")
-        return jsonify({"error": "Email parse failed", "detail": str(exc)}), 500
+        # Step 1: Gmail poll
+        try:
+            from gmail_poller import poll_gmail
+            poll_result = poll_gmail()
+        except RuntimeError as e:
+            log_lines.append(f"⚠️  Gmail poll skipped: {e}")
+            poll_result = {"ingested": 0, "skipped": 0, "failed": 0}
+        except Exception as e:
+            log_lines.append(f"❌ Gmail poll error: {e}")
+            poll_result = {"ingested": 0, "skipped": 0, "failed": 0}
 
-    try:
-        newsletter_id = insert_newsletter(
-            sender_email=parsed["sender_email"],
-            sender_name=parsed["sender_name"],
-            subject=parsed["subject"],
-            received_at=parsed["received_at"],
-            raw_html=parsed["raw_html"],
-            plain_text=parsed["plain_text"],
-        )
-    except Exception as exc:
-        app.logger.error(f"[inbound] DB error: {exc}")
-        return jsonify({"error": "Database insert failed", "detail": str(exc)}), 500
+        # Step 2: AI processing + synthesis
+        from processor import run_pipeline
+        pipeline_result = run_pipeline()
 
-    app.logger.info(
-        f"[inbound] id={newsletter_id} from='{parsed['sender_email']}' "
-        f"links={len(parsed['article_links'])}"
-    )
+        result = {**poll_result, **pipeline_result, "status": "ok"}
 
-    return jsonify({
-        "ok": True,
-        "newsletter_id": newsletter_id,
-        "sender": parsed["sender_email"],
-        "subject": parsed["subject"],
-        "article_links_found": len(parsed["article_links"]),
-    }), 200
+        with _job_lock:
+            _job["result"]      = result
+            _job["error"]       = None
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+
+    except Exception as e:
+        with _job_lock:
+            _job["error"]       = str(e)
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+    finally:
+        sys.stdout = sys.__stdout__
+
+
+@app.post("/api/pull")
+def trigger_pull():
+    """
+    Trigger a full Gmail poll + AI pipeline run.
+    Returns 202 immediately; poll /api/pull/status to track progress.
+    """
+    with _job_lock:
+        if _job["running"]:
+            return jsonify({
+                "ok": False,
+                "error": "A pipeline run is already in progress",
+                "started_at": _job["started_at"],
+            }), 409
+
+        _job["running"]     = True
+        _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
+        _job["finished_at"] = None
+        _job["result"]      = None
+        _job["error"]       = None
+        _job["log"]         = []
+
+    thread = threading.Thread(target=_run_pipeline_job, daemon=True)
+    thread.start()
+
+    return jsonify({"ok": True, "message": "Pipeline started"}), 202
+
+
+@app.get("/api/pull/status")
+def pull_status():
+    """Return current pipeline job state."""
+    with _job_lock:
+        return jsonify({
+            "running":     _job["running"],
+            "started_at":  _job["started_at"],
+            "finished_at": _job["finished_at"],
+            "result":      _job["result"],
+            "error":       _job["error"],
+            "log":         _job["log"][-30:],   # last 30 lines
+        })
 
 
 # ---------------------------------------------------------------------------
-# Dashboard API endpoints
+# Digest API
 # ---------------------------------------------------------------------------
 
 @app.get("/api/digest")
 def digest_today():
-    """Full digest for today — themes + newsletters + takeaways + articles."""
-    today = date.today().isoformat()
-    return jsonify(get_full_digest_for_date(today))
-
+    return jsonify(get_full_digest_for_date(date.today().isoformat()))
 
 @app.get("/api/digest/<date_str>")
-def digest_for_date(date_str: str):
-    """Full digest for a specific date (YYYY-MM-DD)."""
+def digest_for_date(date_str):
     try:
-        # Basic format validation
-        from datetime import datetime
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+        return jsonify({"error": "Invalid date. Use YYYY-MM-DD"}), 400
     return jsonify(get_full_digest_for_date(date_str))
-
 
 @app.get("/api/status")
 def status():
-    unprocessed = get_unprocessed_newsletters()
     today = date.today().isoformat()
     digest = get_full_digest_for_date(today)
+    with _job_lock:
+        pipeline_running = _job["running"]
     return jsonify({
-        "status": "ok",
-        "today": today,
-        "unprocessed_count": len(unprocessed),
-        "newsletters_today": len(digest["newsletters"]),
-        "themes_today": len(digest["themes"]),
+        "status":              "ok",
+        "today":               today,
+        "unprocessed_count":   len(get_unprocessed_newsletters()),
+        "newsletters_today":   len(digest["newsletters"]),
+        "themes_today":        len(digest["themes"]),
+        "pipeline_running":    pipeline_running,
     })
-
 
 @app.get("/api/newsletters/today")
 def newsletters_today():
     today = date.today().isoformat()
     rows = get_newsletters_for_date(today)
-    slim = [
-        {
-            "id": r["id"],
-            "sender_email": r["sender_email"],
-            "sender_name": r["sender_name"],
-            "subject": r["subject"],
-            "received_at": r["received_at"],
-            "processed": bool(r["processed"]),
-        }
-        for r in rows
-    ]
-    return jsonify({"date": today, "count": len(slim), "newsletters": slim})
+    return jsonify({
+        "date": today,
+        "count": len(rows),
+        "newsletters": [
+            {
+                "id": r["id"],
+                "sender_email": r["sender_email"],
+                "sender_name": r["sender_name"],
+                "subject": r["subject"],
+                "received_at": r["received_at"],
+                "processed": bool(r["processed"]),
+            }
+            for r in rows
+        ],
+    })
 
 
 # ---------------------------------------------------------------------------
-# Test / dev endpoint
+# Test / dev
 # ---------------------------------------------------------------------------
 
 @app.post("/test/ingest")
 def test_ingest():
-    """Inject a fake newsletter without a real email provider. Dev only."""
+    """Inject a fake newsletter. Dev only."""
     data = request.get_json(silent=True) or {}
 
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
-    from datetime import datetime, timezone
-
-    sender_email = data.get("sender_email", "test@example.com")
-    sender_name = data.get("sender_name", "Test Sender")
-    subject = data.get("subject", "Test Newsletter")
-    body_html = data.get("body", "<p>Test email body</p>")
+    from datetime import timezone
 
     msg = MIMEMultipart("alternative")
-    msg["From"] = f"{sender_name} <{sender_email}>"
-    msg["Subject"] = subject
+    msg["From"] = f"{data.get('sender_name','Test')} <{data.get('sender_email','test@example.com')}>"
+    msg["Subject"] = data.get("subject", "Test Newsletter")
     msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
-    msg.attach(MIMEText(body_html, "html"))
+    msg.attach(MIMEText(data.get("body", "<p>Test</p>"), "html"))
 
     parsed = parse_raw_email(msg.as_bytes())
-    newsletter_id = insert_newsletter(
+    nl_id = insert_newsletter(
         sender_email=parsed["sender_email"],
         sender_name=parsed["sender_name"],
         subject=parsed["subject"],
@@ -222,18 +255,7 @@ def test_ingest():
         raw_html=parsed["raw_html"],
         plain_text=parsed["plain_text"],
     )
-
-    return jsonify({
-        "ok": True,
-        "newsletter_id": newsletter_id,
-        "parsed": {
-            "sender_email": parsed["sender_email"],
-            "subject": parsed["subject"],
-            "plain_text_preview": parsed["plain_text"][:200],
-            "article_links_found": len(parsed["article_links"]),
-            "article_links": parsed["article_links"],
-        },
-    }), 201
+    return jsonify({"ok": True, "newsletter_id": nl_id}), 201
 
 
 # ---------------------------------------------------------------------------
@@ -244,8 +266,8 @@ if __name__ == "__main__":
     init_db()
     port = int(os.getenv("PORT", 5001))
     debug = os.getenv("FLASK_DEBUG", "1") == "1"
-    print(f"\n🗞  Briefly server running on http://localhost:{port}")
-    print(f"   POST /inbound              ← SendGrid webhook")
-    print(f"   GET  /api/digest           ← today's digest (dashboard)")
-    print(f"   GET  /api/status           ← health check\n")
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    print(f"\n🗞  Briefly server — http://localhost:{port}")
+    print(f"   Dashboard  : GET  /")
+    print(f"   Pull now   : POST /api/pull")
+    print(f"   Digest API : GET  /api/digest\n")
+    app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)

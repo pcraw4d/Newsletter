@@ -5,10 +5,15 @@ Two main jobs:
   1. process_newsletter(id)  — per-newsletter: extract takeaways + summarise articles
   2. run_synthesis(date)     — cross-newsletter: identify themes across all newsletters
 
-Both call Groq's API (Llama 3.3 70B) via the OpenAI-compatible client and store
-results back to SQLite.
+Model: Google Gemini Flash 2.0
+  - Free tier: 15 requests/min, 1,500 requests/day — more than enough for a personal digest
+  - Context window: 1,000,000 tokens — no more token limit errors
+  - API: OpenAI-compatible endpoint, so the client is identical to before
+  - Get a free key: aistudio.google.com → Get API Key (no credit card)
 
-Switching providers: set MODEL_PROVIDER=together or =openrouter in .env — no code changes needed.
+Fallback providers still supported via MODEL_PROVIDER env var:
+  MODEL_PROVIDER=groq       → Groq + Llama 3.3 70B
+  MODEL_PROVIDER=together   → Together AI + Llama 3.3 70B
 """
 
 import json
@@ -37,30 +42,38 @@ from article_fetcher import fetch_articles
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# Model client — swap provider by changing env vars only
+# Model client
+#
+# Default: Gemini Flash 2.0 via Google's OpenAI-compatible endpoint.
+# Override by setting MODEL_PROVIDER in .env.
 # ---------------------------------------------------------------------------
 
-PROVIDER = os.getenv("MODEL_PROVIDER", "groq").lower()
+PROVIDER = os.getenv("MODEL_PROVIDER", "gemini").lower()
 
 _PROVIDERS = {
+    "gemini": {
+        "base_url":    "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "api_key_env": "GEMINI_API_KEY",
+        "model":       "gemini-2.0-flash",
+    },
     "groq": {
-        "base_url": "https://api.groq.com/openai/v1",
+        "base_url":    "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY",
-        "model": "llama-3.3-70b-versatile",
+        "model":       "llama-3.3-70b-versatile",
     },
     "together": {
-        "base_url": "https://api.together.xyz/v1",
+        "base_url":    "https://api.together.xyz/v1",
         "api_key_env": "TOGETHER_API_KEY",
-        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "model":       "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     },
     "openrouter": {
-        "base_url": "https://openrouter.ai/api/v1",
+        "base_url":    "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
-        "model": "meta-llama/llama-3.3-70b-instruct",
+        "model":       "google/gemini-flash-1.5",
     },
 }
 
-_cfg = _PROVIDERS.get(PROVIDER, _PROVIDERS["groq"])
+_cfg = _PROVIDERS.get(PROVIDER, _PROVIDERS["gemini"])
 MODEL = os.getenv("MODEL_NAME", _cfg["model"])
 
 client = OpenAI(
@@ -68,27 +81,29 @@ client = OpenAI(
     base_url=_cfg["base_url"],
 )
 
+print(f"[processor] provider={PROVIDER}  model={MODEL}")
+
+
 # ---------------------------------------------------------------------------
-# JSON-safe LLM call with retry
+# JSON-safe LLM caller with retry
 #
-# Open source models occasionally wrap JSON in markdown fences or add a brief
-# preamble. This wrapper strips common formatting noise and retries up to 3x
-# with an escalating instruction to return clean JSON.
+# Gemini is very reliable with JSON but we keep the retry wrapper for safety.
+# It strips markdown fences, finds JSON boundaries, and on failure sends the
+# model its own bad response back with a correction nudge — up to 3 attempts.
 # ---------------------------------------------------------------------------
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
+
 def _clean_json(raw: str) -> str:
     """Strip markdown fences and leading/trailing prose."""
-    # Try to extract fenced block first
     match = _FENCE_RE.search(raw)
     if match:
         return match.group(1).strip()
-    # Find the first { or [ and slice from there
-    for start_char, end_char in [('{', '}'), ('[', ']')]:
-        idx = raw.find(start_char)
+    for start, end in [('{', '}'), ('[', ']')]:
+        idx = raw.find(start)
         if idx != -1:
-            last = raw.rfind(end_char)
+            last = raw.rfind(end)
             if last > idx:
                 return raw[idx:last + 1].strip()
     return raw.strip()
@@ -97,7 +112,7 @@ def _clean_json(raw: str) -> str:
 def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | list:
     """
     Call the model and return parsed JSON.
-    expect: 'object' or 'array' — used to craft retry instructions.
+    expect: 'object' or 'array'
     Raises ValueError after all retries exhausted.
     """
     messages = [{"role": "user", "content": prompt}]
@@ -108,14 +123,13 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
             resp = client.chat.completions.create(
                 model=MODEL,
                 max_tokens=2000,
-                temperature=0.2,          # lower temp = more consistent JSON
+                temperature=0.2,
                 messages=messages,
             )
             raw = resp.choices[0].message.content or ""
             cleaned = _clean_json(raw)
             parsed = json.loads(cleaned)
 
-            # Validate top-level type matches expectation
             if expect == "array" and not isinstance(parsed, list):
                 raise ValueError(f"Expected JSON array, got {type(parsed).__name__}")
             if expect == "object" and not isinstance(parsed, dict):
@@ -125,24 +139,22 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
 
         except (json.JSONDecodeError, ValueError) as e:
             last_error = e
-            print(f"   ⚠️  Attempt {attempt}/{retries} — JSON parse failed: {e}")
+            print(f"   ⚠️  Attempt {attempt}/{retries} — JSON parse error: {e}")
             if attempt < retries:
-                # Add assistant turn showing the bad response + a correction nudge
-                retry_instruction = (
-                    f"Your previous response could not be parsed as valid JSON. "
-                    f"Return ONLY a valid JSON {'array' if expect == 'array' else 'object'}. "
-                    f"No markdown, no explanation, no preamble."
-                )
                 messages = [
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": raw},
-                    {"role": "user", "content": retry_instruction},
+                    {"role": "user", "content": (
+                        "Your response could not be parsed as valid JSON. "
+                        f"Return ONLY a valid JSON {'array' if expect == 'array' else 'object'}. "
+                        "No markdown fences, no explanation, no preamble."
+                    )},
                 ]
                 time.sleep(1)
 
         except Exception as e:
-            print(f"   ❌ API error on attempt {attempt}: {e}")
             last_error = e
+            print(f"   ❌ API error on attempt {attempt}: {e}")
             if attempt < retries:
                 time.sleep(2 * attempt)
 
@@ -154,55 +166,59 @@ def _llm_call(prompt: str, expect: str = "object", retries: int = 3) -> dict | l
 # ---------------------------------------------------------------------------
 
 def _build_newsletter_prompt(newsletter: dict, fetched_articles: list[dict]) -> str:
+    """
+    Gemini's 1M token context means we can pass full article text without
+    worrying about truncation. Articles are passed in full up to their
+    MAX_TEXT_CHARS limit (set in article_fetcher.py).
+    """
     articles_section = ""
     for i, a in enumerate(fetched_articles, 1):
         if a["status"] == "ok" and a["text"]:
             articles_section += f"""
 --- LINKED ARTICLE {i} ---
 Title: {a['title']}
-URL: {a['url']}
+URL:   {a['url']}
 Content:
-{a['text'][:8000]}
+{a['text']}
 """
 
     return f"""You are an expert analyst processing a newsletter for a busy professional.
 
 NEWSLETTER DETAILS:
-Sender: {newsletter['sender_name']} <{newsletter['sender_email']}>
+Sender:  {newsletter['sender_name']} <{newsletter['sender_email']}>
 Subject: {newsletter['subject']}
 
 NEWSLETTER BODY:
-{newsletter['plain_text'][:6000]}
+{newsletter['plain_text']}
 {articles_section}
 
-Analyse the newsletter body AND any linked articles above, then return a JSON object with this EXACT structure:
+Analyse the newsletter body AND all linked articles provided above. Return a JSON object with this EXACT structure:
 
 {{
   "category": "one of: Fintech & Markets | Product | Venture & Tech | AI & ML | Macro & Policy | Compliance & Risk | Other",
   "takeaways": [
-    "Concise, insight-rich bullet. Lead with the finding. Be specific — include numbers, names, decisions where relevant. 1-2 sentences max.",
-    "3-5 bullets total. Synthesise across newsletter body AND linked articles."
+    "Concise, insight-rich bullet. Lead with the finding — be specific, include numbers/names/decisions where present.",
+    "Each bullet is 1–2 sentences, self-contained.",
+    "3–5 bullets total. Synthesise across newsletter body AND linked articles."
   ],
   "articles": [
     {{
       "url": "exact URL from the linked articles above",
       "title": "article title",
-      "summary": "2-3 sentences on what the article argues or reveals. Be specific."
+      "summary": "2–3 sentences on what the article specifically argues or reveals."
     }}
   ]
 }}
 
-IMPORTANT: Return ONLY the raw JSON object. No markdown fences, no preamble, no explanation.
-Do not invent information not present in the source material.
+Return ONLY the raw JSON object. No markdown fences, no preamble, no explanation.
+Do not invent information not in the source material.
 If no articles were fetched, return an empty array for articles."""
 
 
 def _build_synthesis_prompt(newsletters: list[dict]) -> str:
     content_block = ""
     for n in newsletters:
-        bullets = "\n".join(
-            f"  • {t['content']}" for t in n.get("takeaways", [])
-        )
+        bullets = "\n".join(f"  • {t['content']}" for t in n.get("takeaways", []))
         content_block += f"\n=== {n['sender_name']} — {n['subject']} ===\n{bullets}\n"
 
     return f"""You are a senior analyst synthesising intelligence across multiple newsletters received today.
@@ -210,21 +226,21 @@ def _build_synthesis_prompt(newsletters: list[dict]) -> str:
 TODAY'S NEWSLETTER TAKEAWAYS:
 {content_block}
 
-Identify 2-4 meaningful cross-cutting themes — signals appearing across multiple newsletters OR a single significant standalone development.
+Identify 2–4 meaningful cross-cutting themes — signals appearing across multiple newsletters, or a single significant standalone development worth flagging.
 
 Return a JSON array with this EXACT structure:
 
 [
   {{
     "tag": "one of: MACRO SIGNAL | PRODUCT TREND | MARKET MOVE | REGULATORY SHIFT | EMERGING | CONSENSUS VIEW",
-    "title": "Single crisp thesis sentence, max 15 words.",
-    "summary": "2-4 sentences. Name which newsletters contributed. Include concrete details.",
+    "title": "A single crisp thesis sentence, max 15 words.",
+    "summary": "2–4 sentences. Name specific newsletters that contributed. Include concrete details.",
     "source_names": ["Newsletter Name 1", "Newsletter Name 2"],
     "confidence": "HIGH (3+ sources align) | MEDIUM (2 sources or one strong signal) | LOW (speculative)"
   }}
 ]
 
-IMPORTANT: Return ONLY the raw JSON array. No markdown fences, no preamble, no explanation.
+Return ONLY the raw JSON array. No markdown fences, no preamble.
 Order by confidence: HIGH first. Only surface themes the data genuinely supports."""
 
 
@@ -237,9 +253,10 @@ def process_newsletter(newsletter: dict) -> bool:
     Full pipeline for one newsletter:
       1. Extract article links from raw HTML
       2. Fetch each article
-      3. Call LLM → structured JSON
+      3. Call Gemini → structured JSON
       4. Store takeaways + article summaries
       5. Mark processed
+    Returns True on success, False on error.
     """
     nid = newsletter["id"]
     print(f"\n📰 Processing id={nid}: '{newsletter['subject'][:60]}'")
@@ -255,14 +272,18 @@ def process_newsletter(newsletter: dict) -> bool:
         print("   Fetching linked articles...")
         fetched = fetch_articles(links)
 
-    # 3. Call LLM
+    ok_count = sum(1 for a in fetched if a["status"] == "ok")
+    total_chars = sum(len(a.get("text", "")) for a in fetched if a["status"] == "ok")
+    print(f"   {ok_count}/{len(fetched)} articles fetched  ({total_chars:,} chars → passed to model)")
+
+    # 3. Call Gemini
     print(f"   Calling {PROVIDER} ({MODEL})...")
     prompt = _build_newsletter_prompt(newsletter, fetched)
 
     try:
         result = _llm_call(prompt, expect="object")
     except ValueError as e:
-        print(f"   ❌ Failed: {e}")
+        print(f"   ❌ Failed after retries: {e}")
         return False
 
     # 4a. Store takeaways
@@ -311,7 +332,6 @@ def run_synthesis(target_date: str) -> bool:
         return False
 
     print(f"   Synthesising across {len(processed)} newsletter(s)...")
-
     for n in processed:
         n["takeaways"] = get_takeaways_for_newsletter(n["id"])
 
