@@ -10,7 +10,7 @@ Tables:
 
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone, date
 
 DB_PATH = os.getenv("DB_PATH", "briefly.db")
 
@@ -103,6 +103,14 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_themes_date
                 ON themes(date DESC);
+
+            -- ----------------------------------------------------------------
+            -- _meta: key-value store for maintenance state (e.g. last_vacuum)
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS _meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            );
         """)
         try:
             conn.execute("ALTER TABLE newsletters ADD COLUMN category TEXT")
@@ -256,6 +264,34 @@ def get_articles_for_newsletter(newsletter_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def clear_extracted_text_for_newsletter(newsletter_id: int) -> None:
+    """
+    After processing, wipe the raw scraped article bodies.
+    The AI-generated summary is preserved — only the source text is cleared.
+    """
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "UPDATE articles SET extracted_text = NULL WHERE newsletter_id = ?",
+            (newsletter_id,)
+        )
+    conn.close()
+
+
+def clear_raw_html_for_newsletter(newsletter_id: int) -> None:
+    """
+    After processing, wipe the raw HTML body of a newsletter.
+    The stripped plain_text is preserved for re-reading.
+    """
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "UPDATE newsletters SET raw_html = NULL WHERE id = ?",
+            (newsletter_id,)
+        )
+    conn.close()
+
+
 def insert_takeaway(newsletter_id: int, content: str) -> int:
     conn = get_conn()
     with conn:
@@ -348,6 +384,117 @@ def get_full_digest_for_date(date: str) -> dict:
         "themes": themes,
         "newsletters": enriched,
     }
+
+
+def purge_old_data(retention_days: int = 30) -> dict:
+    """
+    Delete all newsletters older than retention_days and all their dependent
+    rows (takeaways, articles). Also prunes themes and the gmail_ingested
+    tracking table.
+
+    Deletion order respects foreign key constraints:
+      takeaways → articles → newsletters → themes → gmail_ingested
+
+    Returns a dict of row counts deleted per table.
+    """
+    cutoff_iso = (
+        datetime.now(timezone.utc) - timedelta(days=retention_days)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    cutoff_date = (
+        date.today() - timedelta(days=retention_days)
+    ).isoformat()
+
+    counts = {
+        "newsletters": 0,
+        "takeaways": 0,
+        "articles": 0,
+        "themes": 0,
+        "gmail_ingested": 0,
+    }
+
+    conn = get_conn()
+    with conn:
+        # Fetch IDs of newsletters to be deleted
+        old_ids = [
+            row[0] for row in conn.execute(
+                "SELECT id FROM newsletters WHERE received_at < ?",
+                (cutoff_iso,)
+            ).fetchall()
+        ]
+
+        if old_ids:
+            placeholders = ",".join("?" * len(old_ids))
+
+            counts["takeaways"] = conn.execute(
+                f"DELETE FROM takeaways WHERE newsletter_id IN ({placeholders})",
+                old_ids,
+            ).rowcount
+
+            counts["articles"] = conn.execute(
+                f"DELETE FROM articles WHERE newsletter_id IN ({placeholders})",
+                old_ids,
+            ).rowcount
+
+            counts["newsletters"] = conn.execute(
+                "DELETE FROM newsletters WHERE received_at < ?",
+                (cutoff_iso,),
+            ).rowcount
+
+        # Themes use a date string (YYYY-MM-DD), not a timestamp
+        counts["themes"] = conn.execute(
+            "DELETE FROM themes WHERE date < ?",
+            (cutoff_date,),
+        ).rowcount
+
+        # gmail_ingested only needs ~30 days to prevent re-ingestion
+        # Use the same retention window for consistency
+        counts["gmail_ingested"] = conn.execute(
+            "DELETE FROM gmail_ingested WHERE ingested_at < ?",
+            (cutoff_date,),
+        ).rowcount
+
+    conn.close()
+    return counts
+
+
+def vacuum_if_needed() -> bool:
+    """
+    Run VACUUM if it hasn't been run in the last 7 days.
+    Records the last vacuum date in the _meta table.
+    Returns True if VACUUM was run, False if skipped.
+    """
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT value FROM _meta WHERE key = 'last_vacuum'"
+        ).fetchone()
+        last_vacuum = row[0] if row else None
+
+        should_vacuum = (
+            last_vacuum is None or
+            (date.today() - date.fromisoformat(last_vacuum)).days >= 7
+        )
+
+        if not should_vacuum:
+            return False
+
+        # VACUUM must run outside a transaction
+        conn.isolation_level = None
+        conn.execute("VACUUM")
+        conn.isolation_level = ""
+
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO _meta (key, value) VALUES ('last_vacuum', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (date.today().isoformat(),),
+            )
+        return True
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

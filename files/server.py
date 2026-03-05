@@ -192,6 +192,28 @@ def digest_for_date(date_str):
         return jsonify({"error": "Invalid date. Use YYYY-MM-DD"}), 400
     return jsonify(get_full_digest_for_date(date_str))
 
+def _get_db_stats() -> dict:
+    from database import get_conn
+    conn = get_conn()
+    stats = {}
+    stats["total_newsletters"] = conn.execute(
+        "SELECT COUNT(*) FROM newsletters"
+    ).fetchone()[0]
+    stats["total_articles"] = conn.execute(
+        "SELECT COUNT(*) FROM articles"
+    ).fetchone()[0]
+    stats["total_themes"] = conn.execute(
+        "SELECT COUNT(*) FROM themes"
+    ).fetchone()[0]
+    row = conn.execute(
+        "SELECT MIN(date(received_at)), MAX(date(received_at)) FROM newsletters"
+    ).fetchone()
+    stats["oldest_newsletter"] = row[0]
+    stats["newest_newsletter"] = row[1]
+    conn.close()
+    return stats
+
+
 @app.get("/api/status")
 def status():
     today = date.today().isoformat()
@@ -206,6 +228,8 @@ def status():
         "themes_today":        len(digest["themes"]),
         "junk_filtered_today": get_junk_filtered_count_for_date(today),
         "pipeline_running":    pipeline_running,
+        "retention_days":      int(os.getenv("DATA_RETENTION_DAYS", "30")),
+        "db_stats":            _get_db_stats(),
     })
 
 @app.get("/api/newsletters/today")

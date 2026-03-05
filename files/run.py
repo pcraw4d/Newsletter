@@ -19,13 +19,16 @@ Railway cron (runs daily at 12:00 UTC / 7am EST):
 """
 
 import argparse
+import os
 import sys
 from datetime import date
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from database import init_db, get_unprocessed_newsletters, get_full_digest_for_date, get_junk_filtered_count_for_date
+DATA_RETENTION_DAYS = int(os.getenv("DATA_RETENTION_DAYS", "30"))
+
+from database import init_db, get_unprocessed_newsletters, get_full_digest_for_date, get_junk_filtered_count_for_date, purge_old_data, vacuum_if_needed
 from processor import run_pipeline, run_synthesis
 
 
@@ -43,6 +46,20 @@ def cmd_status():
         for n in queue:
             print(f"   • [{n['id']}] {n['sender_name']} — {n['subject'][:50]}")
     print()
+
+
+def cmd_cleanup(retention_days: int) -> None:
+    print(f"\n🗑  Running data retention purge (>{retention_days} days old)...")
+    counts = purge_old_data(retention_days)
+    print(f"   Deleted — newsletters: {counts['newsletters']} "
+          f"| takeaways: {counts['takeaways']} "
+          f"| articles: {counts['articles']} "
+          f"| themes: {counts['themes']} "
+          f"| gmail_ingested: {counts['gmail_ingested']}")
+
+    print(f"\n🔧 Checking if VACUUM needed...")
+    ran = vacuum_if_needed()
+    print(f"   VACUUM: {'ran ✅' if ran else 'skipped (ran recently)'}")
 
 
 def cmd_poll() -> dict:
@@ -67,6 +84,8 @@ def main():
     parser.add_argument("--poll-only",      action="store_true", help="Only fetch from Gmail")
     parser.add_argument("--synthesis-only", action="store_true", help="Re-run synthesis only")
     parser.add_argument("--status",         action="store_true", help="Print status and exit")
+    parser.add_argument("--skip-cleanup",   action="store_true",
+                        help="Skip data retention purge and vacuum")
     args = parser.parse_args()
 
     init_db()
@@ -88,6 +107,8 @@ def main():
 
     # AI processing + synthesis
     summary = run_pipeline(args.date)
+    if not args.skip_cleanup:
+        cmd_cleanup(DATA_RETENTION_DAYS)
     sys.exit(0 if summary["newsletters_failed"] == 0 else 1)
 
 

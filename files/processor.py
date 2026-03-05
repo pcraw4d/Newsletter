@@ -37,6 +37,8 @@ from database import (
     delete_themes_for_date,
     mark_newsletter_processed,
     set_newsletter_skipped,
+    clear_extracted_text_for_newsletter,
+    clear_raw_html_for_newsletter,
 )
 from email_parser import extract_article_links
 from article_fetcher import fetch_articles
@@ -499,7 +501,7 @@ def _build_synthesis_prompt(newsletters: list[dict]) -> str:
 TODAY'S NEWSLETTER TAKEAWAYS:
 {content_block}
 
-Identify 2–4 meaningful cross-cutting themes — signals appearing across multiple newsletters, or a single significant standalone development worth flagging.
+Identify 3–6 meaningful cross-cutting themes — signals appearing across multiple newsletters, or a single significant standalone development worth flagging.
 
 Return a JSON array with this EXACT structure:
 
@@ -619,6 +621,10 @@ def process_newsletter(newsletter: dict) -> bool:
 
     # 5. Mark done
     mark_newsletter_processed(nid)
+    clear_extracted_text_for_newsletter(nid)
+    clear_raw_html_for_newsletter(nid)
+    print(f"   🧹 Cleared raw_html for newsletter id={nid}")
+    print(f"   🧹 Cleared extracted_text for {len(articles)} article(s)")
     return True
 
 
