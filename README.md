@@ -19,29 +19,36 @@ serves everything via a JSON API and dashboard.
 ## Project structure
 
 ```
-├── server.py          ← Flask server (dashboard API + pull trigger)
-├── processor.py       ← AI pipeline (Gemini calls, takeaways, synthesis)
-├── article_fetcher.py ← Fetch & extract text from linked article URLs
-├── email_parser.py    ← MIME parsing, HTML stripping, link extraction
-├── database.py        ← SQLite schema + query helpers
-├── run.py             ← CLI entry point (used by Railway cron)
-├── gmail_auth.py      ← OAuth flow to generate gmail_token.json
-├── gmail_poller.py    ← Poll Gmail for newsletters in label
-├── requirements.txt
-├── Procfile           ← gunicorn start command for Railway web service
-├── railway.toml       ← Railway service + cron configuration
-├── env.example        ← copy to .env for local dev
-└── static/index.html ← Dashboard SPA
+├── README.md
+├── files/                    ← All app code (run from here)
+│   ├── server.py             ← Flask server (dashboard API + pull trigger)
+│   ├── processor.py          ← AI pipeline (Gemini calls, takeaways, synthesis)
+│   ├── article_fetcher.py    ← Fetch & extract text from linked article URLs
+│   ├── email_parser.py       ← MIME parsing, HTML stripping, link extraction
+│   ├── database.py           ← SQLite schema + query helpers
+│   ├── run.py                ← CLI entry point (used by Railway cron)
+│   ├── gmail_auth.py         ← OAuth flow to generate gmail_token.json
+│   ├── gmail_poller.py       ← Poll Gmail for newsletters in label
+│   ├── requirements.txt
+│   ├── Procfile              ← gunicorn start command for Railway web service
+│   ├── railway.toml          ← Railway service + cron configuration
+│   ├── env.example           ← copy to .env for local dev
+│   └── index.html            ← Dashboard SPA
+├── newsletter-digest.jsx     ← Figma design (optional)
+└── .gitignore
 ```
 
 ---
 
 ## Local development
 
+All commands below run from the `files/` directory.
+
 ### Setup order
 
 1. **Install dependencies**
    ```bash
+   cd files
    pip install -r requirements.txt
    ```
 
@@ -50,10 +57,10 @@ serves everything via a JSON API and dashboard.
 3. **Set up Gmail OAuth**
    - [console.cloud.google.com](https://console.cloud.google.com) → create project → enable Gmail API
    - Create **Desktop** OAuth credentials
-   - Save as `gmail_credentials.json` in project root
+   - Save as `gmail_credentials.json` in the `files/` directory
    - Run `python gmail_auth.py` to generate `gmail_token.json`
 
-4. **Create Gmail label** — Create a label called `Newsletters` and apply it to newsletter senders via Gmail filters
+4. **Create Gmail label** — Create a label called `Newsletters` and apply it to newsletter senders via Gmail filters. Or set `GMAIL_SENDERS` to a comma-separated list of sender addresses.
 
 5. **Configure environment**
    ```bash
@@ -92,6 +99,8 @@ railway init
 railway up
 ```
 
+**Note:** If your app code is in `files/`, set **Root Directory** to `files` in the Railway dashboard (Settings → General) so `server.py` and `run.py` are found.
+
 ### After deploying
 
 1. **Add Volume** — Railway dashboard → Volumes → New Volume → mount at `/data`
@@ -105,6 +114,7 @@ railway up
    | `GMAIL_LABEL` | `Newsletters` (or your label name) |
    | `DB_PATH` | `/data/briefly.db` |
    | `FLASK_DEBUG` | `0` |
+   | `DATA_RETENTION_DAYS` | `30` (optional, purges old data) |
 
 3. Railway auto-creates from `railway.toml`:
    - **web** — Flask server (inbound API + dashboard)
@@ -137,12 +147,13 @@ railway up
 | `python run.py --synthesis-only` | Re-run synthesis without reprocessing |
 | `python run.py --date 2026-03-04` | Target a specific date |
 | `python run.py --status` | Print queue depth and exit |
+| `python run.py --skip-cleanup` | Skip data retention purge and vacuum |
 
 ---
 
 ## Switching AI providers
 
-Set `MODEL_PROVIDER` in `.env` or Railway variables — no code changes:
+Set `MODEL_PROVIDER` in `.env` or Railway variables — no code changes. Optionally set `MODEL_NAME` to override the default model.
 
 | Provider | .env value | API key env var |
 |----------|------------|-----------------|
