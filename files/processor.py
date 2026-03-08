@@ -694,13 +694,25 @@ def run_pipeline(target_date: str | None = None) -> dict:
     print(f"\n📥 {len(unprocessed)} newsletter(s) queued")
 
     ok, failed = 0, 0
+    processed_dates: set[str] = set()
     for newsletter in unprocessed:
         if process_newsletter(newsletter):
             ok += 1
+            # Newsletter received_at is ISO-8601 UTC; date part = YYYY-MM-DD
+            ra = newsletter.get("received_at") or ""
+            if ra and len(ra) >= 10:
+                processed_dates.add(ra[:10])
         else:
             failed += 1
 
-    synthesis_ok = run_synthesis(target_date)
+    # Run synthesis for target_date and for every date we just processed.
+    # This fixes the timezone mismatch: newsletters received on March 7 UTC
+    # are stored with that date, but target_date may be March 8 (server local).
+    dates_to_synthesize = {target_date} | processed_dates
+    synthesis_ok = False
+    for d in sorted(dates_to_synthesize):
+        if run_synthesis(d):
+            synthesis_ok = True
 
     summary = {
         "date": target_date,
