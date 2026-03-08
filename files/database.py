@@ -121,26 +121,29 @@ def init_db():
                 ON job_analyses(run_date DESC);
 
             -- ----------------------------------------------------------------
-            -- job_postings: raw fetched job listings (deduped by external_id)
+            -- job_postings: raw fetched job listings
+            -- Unique per (analysis_id, external_id) — same job can appear
+            -- in multiple weekly analyses.
             -- ----------------------------------------------------------------
             CREATE TABLE IF NOT EXISTS job_postings (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 analysis_id  INTEGER NOT NULL REFERENCES job_analyses(id),
-                external_id  TEXT UNIQUE,
+                external_id  TEXT,
                 title        TEXT,
                 company      TEXT,
                 location     TEXT,
                 description  TEXT,
                 posted_at    TEXT,
                 source       TEXT DEFAULT 'adzuna',
-                created_at   TEXT DEFAULT (datetime('now'))
+                created_at   TEXT DEFAULT (datetime('now')),
+                UNIQUE(analysis_id, external_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_job_postings_analysis
                 ON job_postings(analysis_id);
 
-            CREATE INDEX IF NOT EXISTS idx_job_postings_external
-                ON job_postings(external_id);
+            CREATE INDEX IF NOT EXISTS idx_job_postings_external_composite
+                ON job_postings(analysis_id, external_id);
 
             -- ----------------------------------------------------------------
             -- job_skills: AI-extracted skills aggregated per analysis run
@@ -457,7 +460,7 @@ def insert_job_posting(analysis_id: int, external_id: str, title: str,
                 (analysis_id, external_id, title, company, location,
                  description, posted_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(external_id) DO NOTHING
+            ON CONFLICT(analysis_id, external_id) DO NOTHING
             """,
             (analysis_id, external_id, title, company, location,
              description, posted_at),
@@ -543,6 +546,24 @@ def get_prior_week_skills(current_analysis_id: int) -> dict[str, float]:
     ).fetchall()
     conn.close()
     return {r[0]: r[1] for r in rows}
+
+
+def clear_all_job_data() -> dict:
+    """Delete all job analyses, postings, skills, and insight metadata. Returns counts."""
+    conn = get_conn()
+    counts = {"job_skills": 0, "job_postings": 0, "job_analyses": 0, "insights_meta": 0}
+    with conn:
+        counts["job_skills"] = conn.execute("DELETE FROM job_skills").rowcount
+        counts["job_postings"] = conn.execute("DELETE FROM job_postings").rowcount
+        counts["job_analyses"] = conn.execute("DELETE FROM job_analyses").rowcount
+        rows = conn.execute(
+            "SELECT key FROM _meta WHERE key LIKE 'insights_%'"
+        ).fetchall()
+        for (key,) in rows:
+            conn.execute("DELETE FROM _meta WHERE key = ?", (key,))
+            counts["insights_meta"] += 1
+    conn.close()
+    return counts
 
 
 def delete_job_data_older_than(cutoff_date: str) -> dict:

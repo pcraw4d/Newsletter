@@ -23,6 +23,7 @@ from flask import Flask, request, jsonify, abort, send_from_directory
 from dotenv import load_dotenv
 
 from database import (
+    clear_all_job_data,
     init_db,
     insert_newsletter,
     get_unprocessed_newsletters,
@@ -319,6 +320,13 @@ def jobs_for_date(run_date):
             s["example_companies"] = []
     insights = _get_job_insights(analysis["id"]) if analysis else {}
     return jsonify({"analysis": analysis, "skills": skills, "insights": insights})
+
+
+@app.delete("/api/jobs/clear")
+def clear_job_data():
+    """Delete all job analyses, postings, skills, and insight metadata."""
+    counts = clear_all_job_data()
+    return jsonify({"ok": True, "cleared": counts}), 200
 
 
 @app.post("/api/jobs/pull")
