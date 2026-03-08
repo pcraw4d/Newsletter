@@ -439,7 +439,7 @@ function setPullRunning(running) {
 function colorLog(line) {
   if (/✅|ingested|stored|complete/i.test(line)) return `<span class="log-ok">${esc(line)}</span>`;
   if (/❌|error|failed/i.test(line))             return `<span class="log-err">${esc(line)}</span>`;
-  if (/={3,}|pipeline|briefly/i.test(line))      return `<span class="log-head">${esc(line)}</span>`;
+  if (/={3,}|NEWSLETTER PULL|JOB ANALYSIS|pipeline|briefly/i.test(line)) return `<span class="log-head">${esc(line)}</span>`;
   return esc(line);
 }
 
@@ -467,22 +467,33 @@ function showDrawerResult(result) {
   drawerRes.innerHTML = stats.map(s => `<div class="pipeline-stat"><strong>${s.val}</strong>${s.label}</div>`).join('');
 }
 
+function _drawerLabel(type, state) {
+  const t = type === 'job_analysis' ? 'Job analysis' : 'Newsletter pull';
+  if (state === 'running') return `${t} running…`;
+  if (state === 'complete') return `✅ ${t} complete`;
+  if (state === 'failed') return `❌ ${t} failed`;
+  return 'Pipeline';
+}
+
 async function startPollingPipelineStatus() {
   if (state.pollInterval) clearInterval(state.pollInterval);
   state.pollInterval = setInterval(async () => {
     try {
       const status = await fetchPullStatus();
       updateDrawerLog(status.log || []);
-      if (!status.running) {
+      const type = status.type || 'newsletter';
+      if (status.running) {
+        drawerTitle.textContent = _drawerLabel(type, 'running');
+      } else {
         clearInterval(state.pollInterval);
         state.pollInterval = null;
         setPullRunning(false);
         drawerSpinner.style.display = 'none';
         if (status.error) {
-          drawerTitle.textContent = '❌ Pipeline failed';
+          drawerTitle.textContent = _drawerLabel(type, 'failed');
           drawerLog.innerHTML += `<br><span class="log-err">Error: ${esc(status.error)}</span>`;
         } else {
-          drawerTitle.textContent = '✅ Pipeline complete';
+          drawerTitle.textContent = _drawerLabel(type, 'complete');
           showDrawerResult(status.result);
         }
         // Refresh current view
@@ -498,7 +509,7 @@ document.getElementById('pull-btn').addEventListener('click', async () => {
   try {
     drawerLog.innerHTML = '';
     drawerRes.style.display = 'none';
-    drawerTitle.textContent = 'Pipeline running…';
+    drawerTitle.textContent = 'Newsletter pull running…';
     drawerSpinner.style.display = 'inline';
     openDrawer();
     setPullRunning(true);
@@ -821,7 +832,8 @@ async function checkRunningJob() {
     if (status.running) {
       openDrawer();
       setPullRunning(true);
-      drawerTitle.textContent = 'Pipeline running…';
+      const type = status.type || 'newsletter';
+      drawerTitle.textContent = _drawerLabel(type, 'running');
       drawerSpinner.style.display = 'inline';
       updateDrawerLog(status.log || []);
       await startPollingPipelineStatus();

@@ -52,9 +52,10 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 _job = {
     "running":    False,
+    "type":       None,   # "newsletter" | "job_analysis" — which process is/was running
     "started_at": None,
     "finished_at": None,
-    "result":     None,   # summary dict from run_pipeline
+    "result":     None,   # summary dict from run_pipeline or run_job_analysis
     "error":      None,
     "log":        [],     # captured print output
 }
@@ -98,6 +99,8 @@ def _run_pipeline_job():
 
     # Capture stdout so the log is available via /api/pull/status
     log_lines = []
+    _banner = "======== NEWSLETTER PULL (manual) ========"
+    print(_banner)
 
     class _Capture:
         def write(self, msg):
@@ -108,6 +111,7 @@ def _run_pipeline_job():
             sys.__stdout__.flush()
 
     sys.stdout = _Capture()
+    log_lines.append(_banner)
 
     try:
         # Step 1: Gmail poll
@@ -159,6 +163,7 @@ def trigger_pull():
             }), 409
 
         _job["running"]     = True
+        _job["type"]        = "newsletter"
         _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
         _job["finished_at"] = None
         _job["result"]      = None
@@ -177,6 +182,7 @@ def pull_status():
     with _job_lock:
         return jsonify({
             "running":     _job["running"],
+            "type":        _job["type"],   # "newsletter" | "job_analysis"
             "started_at":  _job["started_at"],
             "finished_at": _job["finished_at"],
             "result":      _job["result"],
@@ -362,6 +368,7 @@ def trigger_job_pull():
         if _job["running"]:
             return jsonify({"ok": False, "error": "A pipeline run is already in progress"}), 409
         _job["running"]     = True
+        _job["type"]        = "job_analysis"
         _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
         _job["finished_at"] = None
         _job["result"]      = None
@@ -371,12 +378,15 @@ def trigger_job_pull():
     def _run():
         import sys, io
         log_lines = []
+        _banner = "======== JOB ANALYSIS (manual) ========"
+        print(_banner)
         class _Cap:
             def write(self, m):
                 if m.strip(): log_lines.append(m.rstrip())
                 sys.__stdout__.write(m)
             def flush(self): sys.__stdout__.flush()
         sys.stdout = _Cap()
+        log_lines.append(_banner)
         try:
             from job_processor import run_job_analysis
             result = run_job_analysis()
@@ -450,13 +460,16 @@ def _scheduled_newsletter_pull():
             print("[scheduler] Newsletter pull skipped — pipeline already running")
             return
         _job["running"]     = True
+        _job["type"]        = "newsletter"
         _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
         _job["finished_at"] = None
         _job["result"]      = None
         _job["error"]       = None
         _job["log"]         = []
 
-    print(f"[scheduler] Starting scheduled newsletter pull at {datetime.utcnow().isoformat()}Z")
+    _banner = "======== NEWSLETTER PULL (scheduled) ========"
+    print(_banner)
+    print(f"[scheduler] Newsletter pull started at {datetime.utcnow().isoformat()}Z")
 
     import sys
     log_lines = []
@@ -470,6 +483,7 @@ def _scheduled_newsletter_pull():
             sys.__stdout__.flush()
 
     sys.stdout = _Capture()
+    log_lines.append(_banner)
 
     try:
         try:
@@ -493,6 +507,7 @@ def _scheduled_newsletter_pull():
             _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
             _job["running"]     = False
 
+        print("======== NEWSLETTER PULL COMPLETE ========")
         print(f"[scheduler] Newsletter pull complete — "
               f"ingested={poll_result.get('ingested', 0)} "
               f"processed={pipeline_result.get('newsletters_processed', 0)}")
@@ -503,6 +518,7 @@ def _scheduled_newsletter_pull():
             _job["log"]         = log_lines
             _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
             _job["running"]     = False
+        print("======== NEWSLETTER PULL FAILED ========")
         print(f"[scheduler] ❌ Newsletter pull failed: {e}")
     finally:
         sys.stdout = sys.__stdout__
@@ -514,19 +530,24 @@ def _scheduled_job_analysis():
     Uses the same _job lock as all other pipeline runs.
     Job skills data persists in the DB until the following Monday's run
     overwrites it — no manual cleanup needed.
+    Does NOT poll Gmail or process newsletters — only fetches job postings
+    and runs skill extraction.
     """
     with _job_lock:
         if _job["running"]:
             print("[scheduler] Job analysis skipped — pipeline already running")
             return
         _job["running"]     = True
+        _job["type"]        = "job_analysis"
         _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
         _job["finished_at"] = None
         _job["result"]      = None
         _job["error"]       = None
         _job["log"]         = []
 
-    print(f"[scheduler] Starting scheduled job analysis at {datetime.utcnow().isoformat()}Z")
+    _banner = "======== JOB ANALYSIS (scheduled) ========"
+    print(_banner)
+    print(f"[scheduler] Job analysis started at {datetime.utcnow().isoformat()}Z")
 
     import sys
     log_lines = []
@@ -540,6 +561,7 @@ def _scheduled_job_analysis():
             sys.__stdout__.flush()
 
     sys.stdout = _Capture()
+    log_lines.append(_banner)
 
     try:
         from job_processor import run_job_analysis
@@ -552,6 +574,7 @@ def _scheduled_job_analysis():
             _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
             _job["running"]     = False
 
+        print("======== JOB ANALYSIS COMPLETE ========")
         print(f"[scheduler] Job analysis complete — "
               f"postings={result.get('postings_analyzed', 0)} "
               f"skills={result.get('skills_identified', 0)}")
@@ -562,6 +585,7 @@ def _scheduled_job_analysis():
             _job["log"]         = log_lines
             _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
             _job["running"]     = False
+        print("======== JOB ANALYSIS FAILED ========")
         print(f"[scheduler] ❌ Job analysis failed: {e}")
     finally:
         sys.stdout = sys.__stdout__
