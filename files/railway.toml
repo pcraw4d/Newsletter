@@ -23,6 +23,7 @@ startCommand = "python server.py"
 [services.variables]
 PORT = "8080"
 FLASK_DEBUG = "0"
+DB_PATH = "/data/briefly.db"
 
 [services.deploy]
 restartPolicyType = "on_failure"

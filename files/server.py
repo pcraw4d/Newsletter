@@ -614,11 +614,14 @@ def _start_scheduler() -> BackgroundScheduler:
 
 
 # ---------------------------------------------------------------------------
-# Gunicorn / production scheduler startup
-# Start the scheduler when the module is imported (Gunicorn workers),
-# not just when run directly. Guard against double-start on reload.
+# Gunicorn / production startup
+# init_db() and scheduler must run at module import — when Gunicorn loads
+# server:app, the if __name__ == "__main__" block never runs.
 # ---------------------------------------------------------------------------
 import os as _os
+
+# Ensure DB schema exists before any request or scheduled job touches it
+init_db()
 
 
 def _ensure_scheduler_started():
