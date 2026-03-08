@@ -15,3 +15,7 @@ google-auth>=2.29
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 google-api-python-client>=2.125
+
+# Scheduler — runs newsletter pull and job analysis on schedule
+APScheduler>=3.10.0
+pytz

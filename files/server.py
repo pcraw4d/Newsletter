@@ -21,6 +21,9 @@ from datetime import date, datetime
 
 from flask import Flask, request, jsonify, abort, send_from_directory
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
 
 from database import (
     clear_all_job_data,
@@ -56,6 +59,7 @@ _job = {
     "log":        [],     # captured print output
 }
 _job_lock = threading.Lock()
+_scheduler: "BackgroundScheduler | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +183,24 @@ def pull_status():
             "error":       _job["error"],
             "log":         _job["log"][-30:],   # last 30 lines
         })
+
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    """Return current scheduler job list and next run times."""
+    if _scheduler is None:
+        return jsonify({"running": False, "jobs": []})
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id":            job.id,
+            "name":          job.name,
+            "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+        })
+    return jsonify({
+        "running": True,
+        "jobs": jobs,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -413,15 +435,223 @@ def test_ingest():
 
 
 # ---------------------------------------------------------------------------
+# Scheduled jobs
+# ---------------------------------------------------------------------------
+
+def _scheduled_newsletter_pull():
+    """
+    Runs on schedule: daily 8am and 3pm ET.
+    Additive — fetches new emails since last pull and appends to today's digest.
+    Reuses the same _job lock and state dict as the manual Pull Now button,
+    so the UI pipeline drawer reflects scheduled runs automatically.
+    """
+    with _job_lock:
+        if _job["running"]:
+            print("[scheduler] Newsletter pull skipped — pipeline already running")
+            return
+        _job["running"]     = True
+        _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
+        _job["finished_at"] = None
+        _job["result"]      = None
+        _job["error"]       = None
+        _job["log"]         = []
+
+    print(f"[scheduler] Starting scheduled newsletter pull at {datetime.utcnow().isoformat()}Z")
+
+    import sys
+    log_lines = []
+
+    class _Capture:
+        def write(self, msg):
+            if msg.strip():
+                log_lines.append(msg.rstrip())
+            sys.__stdout__.write(msg)
+        def flush(self):
+            sys.__stdout__.flush()
+
+    sys.stdout = _Capture()
+
+    try:
+        try:
+            from gmail_poller import poll_gmail
+            poll_result = poll_gmail()
+        except RuntimeError as e:
+            log_lines.append(f"⚠️  Gmail poll skipped: {e}")
+            poll_result = {"ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0}
+        except Exception as e:
+            log_lines.append(f"❌ Gmail poll error: {e}")
+            poll_result = {"ingested": 0, "skipped": 0, "junk_skipped": 0, "failed": 0}
+
+        from processor import run_pipeline
+        pipeline_result = run_pipeline()
+        result = {**poll_result, **pipeline_result, "status": "ok"}
+
+        with _job_lock:
+            _job["result"]      = result
+            _job["error"]       = None
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+
+        print(f"[scheduler] Newsletter pull complete — "
+              f"ingested={poll_result.get('ingested', 0)} "
+              f"processed={pipeline_result.get('newsletters_processed', 0)}")
+
+    except Exception as e:
+        with _job_lock:
+            _job["error"]       = str(e)
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+        print(f"[scheduler] ❌ Newsletter pull failed: {e}")
+    finally:
+        sys.stdout = sys.__stdout__
+
+
+def _scheduled_job_analysis():
+    """
+    Runs on schedule: every Monday 8am ET.
+    Uses the same _job lock as all other pipeline runs.
+    Job skills data persists in the DB until the following Monday's run
+    overwrites it — no manual cleanup needed.
+    """
+    with _job_lock:
+        if _job["running"]:
+            print("[scheduler] Job analysis skipped — pipeline already running")
+            return
+        _job["running"]     = True
+        _job["started_at"]  = datetime.utcnow().isoformat() + "Z"
+        _job["finished_at"] = None
+        _job["result"]      = None
+        _job["error"]       = None
+        _job["log"]         = []
+
+    print(f"[scheduler] Starting scheduled job analysis at {datetime.utcnow().isoformat()}Z")
+
+    import sys
+    log_lines = []
+
+    class _Capture:
+        def write(self, msg):
+            if msg.strip():
+                log_lines.append(msg.rstrip())
+            sys.__stdout__.write(msg)
+        def flush(self):
+            sys.__stdout__.flush()
+
+    sys.stdout = _Capture()
+
+    try:
+        from job_processor import run_job_analysis
+        result = run_job_analysis()
+
+        with _job_lock:
+            _job["result"]      = result
+            _job["error"]       = None
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+
+        print(f"[scheduler] Job analysis complete — "
+              f"postings={result.get('postings_analyzed', 0)} "
+              f"skills={result.get('skills_identified', 0)}")
+
+    except Exception as e:
+        with _job_lock:
+            _job["error"]       = str(e)
+            _job["log"]         = log_lines
+            _job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+            _job["running"]     = False
+        print(f"[scheduler] ❌ Job analysis failed: {e}")
+    finally:
+        sys.stdout = sys.__stdout__
+
+
+def _start_scheduler() -> BackgroundScheduler:
+    """
+    Start the APScheduler background scheduler with both job schedules.
+    All times are in America/New_York — APScheduler handles DST automatically.
+    Returns the running scheduler instance.
+    """
+    et = pytz.timezone("America/New_York")
+    scheduler = BackgroundScheduler(timezone=et)
+
+    # Newsletter pull — daily at 8:00 AM ET and 3:00 PM ET
+    scheduler.add_job(
+        _scheduled_newsletter_pull,
+        trigger=CronTrigger(hour=8, minute=0, timezone=et),
+        id="newsletter_pull_morning",
+        name="Newsletter Pull — 8am ET",
+        replace_existing=True,
+        misfire_grace_time=600,  # allow up to 10 min late if process was briefly down
+    )
+    scheduler.add_job(
+        _scheduled_newsletter_pull,
+        trigger=CronTrigger(hour=15, minute=0, timezone=et),
+        id="newsletter_pull_afternoon",
+        name="Newsletter Pull — 3pm ET",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # Job analysis — every Monday at 8:00 AM ET
+    scheduler.add_job(
+        _scheduled_job_analysis,
+        trigger=CronTrigger(day_of_week="mon", hour=8, minute=0, timezone=et),
+        id="job_analysis_weekly",
+        name="Job Analysis — Monday 8am ET",
+        replace_existing=True,
+        misfire_grace_time=3600,  # allow up to 1 hour late — weekly job is less time-sensitive
+    )
+
+    scheduler.start()
+
+    # Log next run times for each job at startup so Railway logs confirm the schedule
+    for job in scheduler.get_jobs():
+        print(f"[scheduler] Scheduled: '{job.name}' — next run: {job.next_run_time}")
+
+    return scheduler
+
+
+# ---------------------------------------------------------------------------
+# Gunicorn / production scheduler startup
+# Start the scheduler when the module is imported (Gunicorn workers),
+# not just when run directly. Guard against double-start on reload.
+# ---------------------------------------------------------------------------
+import os as _os
+
+
+def _ensure_scheduler_started():
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        return
+    # Only start in the main worker, not in Flask debug reloader child process
+    if _os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        return
+    _scheduler = _start_scheduler()
+
+
+_ensure_scheduler_started()
+
+
+# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     init_db()
+    # Scheduler already started at module import via _ensure_scheduler_started()
+    # Just confirm it's running
+    if _scheduler:
+        print("[scheduler] Scheduler already running from module init")
+    else:
+        _scheduler = _start_scheduler()
+
     port = int(os.getenv("PORT", 5001))
     debug = os.getenv("FLASK_DEBUG", "1") == "1"
     print(f"\n🗞  Briefly server — http://localhost:{port}")
     print(f"   Dashboard  : GET  /")
     print(f"   Pull now   : POST /api/pull")
-    print(f"   Digest API : GET  /api/digest\n")
+    print(f"   Digest API : GET  /api/digest")
+    print(f"   Schedule   : GET  /api/scheduler/status\n")
     app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)

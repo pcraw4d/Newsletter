@@ -1,4 +1,4 @@
 # Procfile — tells Railway (and gunicorn) how to run the web server
 # Railway uses this when deploying the 'web' service
 
-web: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+web: gunicorn server:app --workers 1 --bind 0.0.0.0:$PORT --timeout 120

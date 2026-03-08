@@ -1,8 +1,7 @@
 # railway.toml — Briefly deployment configuration
 #
-# Railway will detect this file and configure two services automatically:
-#   1. web      — Flask server (always running, handles webhooks + serves API)
-#   2. pipeline — Daily cron job (runs AI processing at 7am UTC)
+# Single web service — Flask server + embedded APScheduler.
+# Newsletter pull and job analysis run on schedule inside the web process.
 #
 # Deploy steps:
 #   1. railway login
@@ -28,30 +27,3 @@ FLASK_DEBUG = "0"
 [services.deploy]
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-
-# ---------------------------------------------------------------------------
-# Pipeline cron — runs AI processing once per day
-#
-# Schedule: 7:00 AM UTC daily
-# Adjust the hour to match your timezone:
-#   NYC (EST/UTC-5):  12:00 UTC  →  "0 12 * * *"
-#   NYC (EDT/UTC-4):  11:00 UTC  →  "0 11 * * *"
-# ---------------------------------------------------------------------------
-[[services]]
-name = "pipeline"
-cronSchedule = "0 12 * * *"
-startCommand = "python run.py"
-
-[services.variables]
-DATA_RETENTION_DAYS = "30"
-
-# ---------------------------------------------------------------------------
-# Job analysis cron — runs weekly on Mondays at 9:00 UTC
-# ---------------------------------------------------------------------------
-[[services]]
-name = "job-analysis"
-cronSchedule = "0 9 * * 1"
-startCommand = "python run.py --jobs"
-
-[services.variables]
-JOB_ANALYSIS_ENABLED = "1"
